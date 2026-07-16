@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="StateBreaker 本地优惠券竞态条件靶场" />
+    <title>老王奶茶铺 · BUG50 实验台</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="grain" aria-hidden="true"></div>
+    <main class="shell">
+      <header class="masthead reveal">
+        <div>
+          <p class="eyebrow">STATEBREAKER LOCAL LAB / 01</p>
+          <h1>老王奶茶铺</h1>
+          <p class="subtitle">一张只许用一次的券，和两只不讲武德的手。</p>
+        </div>
+      </header>
+
+      <div class="lab-grid">
+        <section class="ticket reveal delay-2" aria-labelledby="coupon-title">
+          <div class="ticket-hole left"></div>
+          <div class="ticket-hole right"></div>
+          <p class="ticket-kicker">今日限定 · 程序员发誓</p>
+          <h2 id="coupon-title">BUG<span>50</span></h2>
+          <p class="ticket-copy">满 0 元减 50 元</p>
+          <div class="rule"><span>使用规则</span><strong>仅限一次（理论上）</strong></div>
+          <div class="barcode" aria-hidden="true"></div>
+          <p class="run-label">RUN ID</p>
+          <code id="run-id">尚未开桌</code>
+        </section>
+
+        <section class="console reveal delay-3" aria-labelledby="console-title">
+          <div class="console-heading">
+            <div>
+              <p class="eyebrow">LIVE STATE</p>
+              <h2 id="console-title">购物车状态</h2>
+            </div>
+            <span class="pulse"><i></i> 单进程实验中</span>
+          </div>
+
+          <div class="metrics" aria-live="polite">
+            <article>
+              <span>累计优惠</span>
+              <strong><small>¥</small><b id="discount">0</b></strong>
+            </article>
+            <article>
+              <span>成功兑换</span>
+              <strong><b id="success-count">0</b><small> 次</small></strong>
+            </article>
+            <article>
+              <span>券状态</span>
+              <strong class="state-badge" id="coupon-state">未使用</strong>
+            </article>
+          </div>
+
+          <div class="actions">
+            <button class="button reset" id="reset-button" type="button">
+              <span>01</span> 开一张新桌
+            </button>
+            <button class="button honest" id="single-button" type="button">
+              <span>02</span> 老实兑换一次
+            </button>
+            <button class="button chaos" id="race-button" type="button">
+              <span>03</span> 发动双倍手速
+            </button>
+          </div>
+          <p class="status-line" id="status-line" role="status">正在给老王擦桌子……</p>
+        </section>
+      </div>
+
+      <section class="timeline reveal delay-4" aria-labelledby="timeline-title">
+        <div class="timeline-header">
+          <div>
+            <p class="eyebrow">APPLICATION STATE EVIDENCE</p>
+            <h2 id="timeline-title">服务器事件小票</h2>
+          </div>
+          <p>真正的证据是优惠变成多少，不是收到了几个 HTTP 200。</p>
+        </div>
+        <ol id="events" class="events" aria-live="polite"></ol>
+      </section>
+    </main>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
