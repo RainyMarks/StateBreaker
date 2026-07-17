@@ -1,6 +1,10 @@
-"""Interactive demo wizard with a Rich-powered UI.
+"""Minimal interactive demo for the coupon-race pipeline.
 
-Shows each command, runs it on demand, prints styled output, then offers the next step.
+Design goals (v2):
+- One clear screen focus: menu OR one step — not nested confirm walls
+- Numbered choices that always work (stdin line input)
+- Compact output: short headers, full command once, then raw process output
+- Optional non-interactive: ``statebreaker demo --auto``
 """
 
 from __future__ import annotations
@@ -9,24 +13,12 @@ import json
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 from pydantic import TypeAdapter
-from rich import box
-from rich.align import Align
-from rich.console import Console, Group
-from rich.markdown import Markdown
-from rich.panel import Panel
-from rich.prompt import Confirm, IntPrompt, Prompt
-from rich.rule import Rule
-from rich.syntax import Syntax
-from rich.table import Table
-from rich.text import Text
-from rich.theme import Theme
 
 from statebreaker.documents import load_model, write_json
 from statebreaker.models import (
@@ -38,203 +30,106 @@ from statebreaker.models import (
 )
 
 PYTHON = sys.executable
-STATEBREAKER = [PYTHON, "-m", "statebreaker"]
-
-THEME = Theme(
-    {
-        "ok": "bold green",
-        "fail": "bold red",
-        "warn": "bold yellow",
-        "muted": "dim",
-        "accent": "bold cyan",
-        "title": "bold white",
-        "cmd": "bold magenta",
-    }
-)
-console = Console(theme=THEME)
+SB = [PYTHON, "-m", "statebreaker"]
 
 
 @dataclass
-class WizardState:
+class State:
     root: Path
-    work_dir: Path
-    workflow_path: Path
-    invariants_path: Path
-    lab_base_url: str = "http://127.0.0.1:8080"
-    plans_path: Path | None = None
-    selected_plan_path: Path | None = None
-    raw_result_path: Path | None = None
-    findings_path: Path | None = None
-    learning_path: Path | None = None
-    report_dir: Path | None = None
-    history: list[str] = field(default_factory=list)
+    work: Path
+    workflow: Path
+    invariants: Path
+    lab: str = "http://127.0.0.1:8080"
+    plans: Path | None = None
+    plan: Path | None = None
+    result: Path | None = None
+    findings: Path | None = None
 
 
-def _banner() -> None:
-    console.print()
-    console.print(
-        Panel(
-            Align.center(
-                Group(
-                    Text("StateBreaker", style="bold cyan"),
-                    Text("Interactive Demo Wizard", style="title"),
-                    Text("Uncle Wang's milk-tea lab · BUG50 race", style="muted"),
-                    Text("show command → confirm → run → inspect → next", style="muted"),
-                )
-            ),
-            border_style="cyan",
-            box=box.DOUBLE,
-            padding=(1, 2),
-        )
-    )
-    console.print()
+def _out(msg: str = "") -> None:
+    print(msg, flush=True)
 
 
-def _status_bar(state: WizardState) -> None:
-    table = Table.grid(padding=(0, 2))
-    table.add_column(style="muted")
-    table.add_column()
-    table.add_row("Lab", f"[accent]{state.lab_base_url}[/]")
-    table.add_row("Work dir", f"[accent]{state.work_dir}[/]")
-    table.add_row("Workflow", str(state.workflow_path.name))
-    table.add_row("Invariants", str(state.invariants_path.name))
-    console.print(Panel(table, title="[title]Session[/]", border_style="blue", box=box.ROUNDED))
+def _err(msg: str) -> None:
+    print(f"! {msg}", flush=True)
 
 
-def _step_header(title: str, index: str | None = None) -> None:
-    label = f"{index}  {title}" if index else title
-    console.print()
-    console.print(Rule(f"[title]{label}[/]", style="cyan"))
+def _ok(msg: str) -> None:
+    print(f"+ {msg}", flush=True)
 
 
-def _info(message: str) -> None:
-    console.print(f"  [accent]i[/]  {message}")
+def _header(title: str) -> None:
+    _out()
+    _out(f"== {title} ==")
 
 
-def _ok(message: str) -> None:
-    console.print(f"  [ok]OK[/]  {message}")
+def _read(prompt: str, default: str = "") -> str:
+    suffix = f" [{default}]" if default else ""
+    try:
+        line = input(f"{prompt}{suffix}: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        _out()
+        raise SystemExit(0) from None
+    return line if line else default
 
 
-def _fail(message: str) -> None:
-    console.print(f"  [fail]X[/]  {message}")
+def _pick(prompt: str, choices: dict[str, str], default: str) -> str:
+    """choices: key -> label. Keys are matched case-insensitively."""
 
-
-def _warn(message: str) -> None:
-    console.print(f"  [warn]![/]  {message}")
-
-
-def _choose(prompt: str, options: list[tuple[str, str]], *, default: str) -> str:
-    table = Table(box=box.SIMPLE_HEAVY, show_header=False, padding=(0, 1))
-    table.add_column("Key", style="bold cyan", width=4)
-    table.add_column("Action")
-    keys = {key.lower() for key, _ in options}
-    for key, label in options:
-        suffix = " [muted](default)[/]" if key.lower() == default.lower() else ""
-        table.add_row(f"[{key}]", f"{label}{suffix}")
-    console.print(
-        Panel(
-            table,
-            title=f"[title]{prompt}[/]",
-            border_style="magenta",
-            box=box.ROUNDED,
-        )
-    )
+    _out(prompt)
+    for key, label in choices.items():
+        mark = " *" if key.lower() == default.lower() else ""
+        _out(f"  {key}) {label}{mark}")
+    keys = {k.lower(): k for k in choices}
     while True:
-        answer = Prompt.ask("[accent]Choice[/]", default=default).strip().lower()
+        answer = _read(">", default).lower()
         if answer in keys:
-            return answer
-        _warn(f"Invalid input. Choose one of: {', '.join(sorted(keys))}")
+            return keys[answer]
+        _err(f"type one of: {', '.join(choices)}")
 
 
-def _run_command(
-    state: WizardState,
-    *,
-    title: str,
-    argv: list[str],
-    explain: str,
-) -> tuple[int, str]:
-    cmd_display = subprocess.list2cmdline(argv)
-    body = Group(
-        Text(explain, style="white"),
-        Text(),
-        Text("Working directory", style="muted"),
-        Text(str(state.root), style="accent"),
-        Text(),
-        Text("Command", style="muted"),
-        Syntax(cmd_display, "bash", theme="monokai", word_wrap=True, padding=1),
-    )
-    console.print(
-        Panel(
-            body,
-            title=f"[cmd]{title}[/]",
-            border_style="magenta",
-            box=box.ROUNDED,
-            padding=(1, 2),
-        )
+def _confirm_run(command: list[str]) -> str:
+    """Return run | skip | quit. Single decision point."""
+
+    _out()
+    _out("$ " + subprocess.list2cmdline(command))
+    return _pick(
+        "run this command?",
+        {"r": "run", "s": "skip", "q": "quit demo"},
+        "r",
     )
 
-    action = _choose(
-        "What next?",
-        [
-            ("r", "Run this command"),
-            ("s", "Skip this step"),
-            ("q", "Quit wizard"),
-        ],
-        default="r",
-    )
-    if action == "q":
-        console.print("[warn]Wizard stopped by user.[/]")
-        raise SystemExit(0)
-    if action == "s":
-        _warn("Skipped.")
-        state.history.append(f"SKIP {title}")
-        return -1, ""
 
-    with console.status("[accent]Running command…[/]", spinner="dots"):
-        completed = subprocess.run(
-            argv,
-            cwd=state.root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-
-    combined = (completed.stdout or "") + (completed.stderr or "")
-    if completed.stdout and completed.stdout.strip():
-        console.print(
-            Panel(
-                completed.stdout.rstrip(),
-                title="[title]stdout[/]",
-                border_style="green",
-                box=box.ROUNDED,
-            )
-        )
-    if completed.stderr and completed.stderr.strip():
-        console.print(
-            Panel(
-                completed.stderr.rstrip(),
-                title="[title]stderr[/]",
-                border_style="yellow",
-                box=box.ROUNDED,
-            )
-        )
-    if completed.returncode == 0:
-        _ok(f"Succeeded  (exit={completed.returncode})")
-        state.history.append(f"OK   {title}")
+def _exec(state: State, command: list[str], *, auto: bool) -> int:
+    if not auto:
+        action = _confirm_run(command)
+        if action == "q":
+            raise SystemExit(0)
+        if action == "s":
+            _out("(skipped)")
+            return -1
     else:
-        _fail(f"Failed  (exit={completed.returncode})")
-        state.history.append(f"FAIL {title} exit={completed.returncode}")
-    return completed.returncode, combined
+        _out("$ " + subprocess.list2cmdline(command))
+
+    proc = subprocess.run(
+        command,
+        cwd=state.root,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if proc.returncode == 0:
+        _ok(f"exit {proc.returncode}")
+    else:
+        _err(f"exit {proc.returncode}")
+    return proc.returncode
 
 
-def _probe_lab(ports: list[int] | None = None) -> str | None:
-    ports = ports or [8080, 18080, 8000]
-    for port in ports:
-        url = f"http://127.0.0.1:{port}/healthz"
+def _probe_lab() -> str | None:
+    for port in (8080, 18080, 8000):
         try:
-            with urlopen(url, timeout=2) as response:  # noqa: S310 - local lab only
-                body = response.read().decode("utf-8", errors="replace")
+            with urlopen(f"http://127.0.0.1:{port}/healthz", timeout=2) as resp:  # noqa: S310
+                body = resp.read().decode("utf-8", errors="replace")
             if "coupon-race" in body:
                 return f"http://127.0.0.1:{port}"
         except (HTTPError, URLError, TimeoutError, OSError):
@@ -242,362 +137,263 @@ def _probe_lab(ports: list[int] | None = None) -> str | None:
     return None
 
 
-def _ensure_workflow_for_lab(state: WizardState) -> None:
+def _sync_workflow(state: State) -> None:
     source = state.root / "examples" / "coupon-race" / "workflow.yaml"
-    workflow = load_model(source, Workflow)
-    data = workflow.model_dump(mode="json")
-    data["base_url"] = state.lab_base_url
-    demo_wf = state.work_dir / "workflow.json"
-    write_json(demo_wf, Workflow.model_validate(data))
-    state.workflow_path = demo_wf
+    data = load_model(source, Workflow).model_dump(mode="json")
+    data["base_url"] = state.lab
+    path = state.work / "workflow.json"
+    write_json(path, Workflow.model_validate(data))
+    state.workflow = path
 
 
-def _default_paths(root: Path) -> WizardState:
+def _init(root: Path) -> State:
     work = root / ".statebreaker" / "wizard"
     work.mkdir(parents=True, exist_ok=True)
-    return WizardState(
+    return State(
         root=root,
-        work_dir=work,
-        workflow_path=root / "examples" / "coupon-race" / "workflow.yaml",
-        invariants_path=root / "examples" / "coupon-race" / "invariants.yaml",
+        work=work,
+        workflow=root / "examples" / "coupon-race" / "workflow.yaml",
+        invariants=root / "examples" / "coupon-race" / "invariants.yaml",
     )
 
 
-def step_check_env(state: WizardState) -> None:
-    plugins = [
+# ----- steps -----
+
+
+def step_env(state: State, *, auto: bool) -> None:
+    _header("1 environment")
+    _exec(state, [*SB, "doctor"], auto=auto)
+    _exec(state, [*SB, "plugins", "list"], auto=auto)
+    needed = [
         ("statebreaker.learner", "team.delta-learner"),
         ("statebreaker.generator", "team.race-generator"),
         ("statebreaker.executor", "team.race-executor"),
         ("statebreaker.verifier", "team.basic-verifier"),
         ("statebreaker.reporter", "team.pdf-reporter"),
     ]
-    _run_command(
-        state,
-        title="Environment · doctor",
-        argv=[*STATEBREAKER, "doctor"],
-        explain="Verify Python / core API versions.",
-    )
-    _run_command(
-        state,
-        title="Environment · plugins list",
-        argv=[*STATEBREAKER, "plugins", "list"],
-        explain="Expect learner / generator / executor / verifier / reporter.",
-    )
+    from statebreaker.plugins import PluginRegistry
 
-    table = Table(title="Demo plugin checklist", box=box.ROUNDED, border_style="cyan")
-    table.add_column("Group", style="muted")
-    table.add_column("Plugin ID", style="accent")
-    table.add_column("Status")
-    missing: list[str] = []
-    try:
-        from statebreaker.plugins import PluginRegistry
-
-        registry = PluginRegistry()
-        for group, plugin_id in plugins:
-            try:
-                registry.get(group, plugin_id)
-                table.add_row(group, plugin_id, "[ok]ready[/]")
-            except Exception:  # noqa: BLE001
-                table.add_row(group, plugin_id, "[fail]missing[/]")
-                missing.append(f"{group} / {plugin_id}")
-    except Exception as exc:  # noqa: BLE001
-        _fail(f"Plugin scan error: {exc}")
-        return
-    console.print(table)
+    reg = PluginRegistry()
+    missing = []
+    for group, pid in needed:
+        try:
+            reg.get(group, pid)
+            _ok(f"{pid}")
+        except Exception:  # noqa: BLE001
+            missing.append(pid)
+            _err(f"missing {pid}")
     if missing:
-        _warn("Install missing plugins from the repo root:")
-        console.print(
-            Markdown(
-                """
-```bash
-python -m pip install -e ".[dev]"
-python -m pip install -e ./race-generator ./race-executor
-python -m pip install -e ./statebreaker-learner-delta
-python -m pip install -e ./statebreaker-verifier-basic
-python -m pip install -e ./statebreaker-reporter-pdf
-```
-"""
-            )
-        )
-    else:
-        _ok("All demo plugins are loaded.")
+        _err("install plugins from repo root, then retry")
 
 
-def step_check_lab(state: WizardState) -> None:
-    console.print(
-        Panel(
-            Markdown(
-                """
-If the lab is **not** running yet, open another terminal:
-
-```powershell
-docker compose up --build
-```
-
-If port **8080** is busy:
-
-```powershell
-$env:STATEBREAKER_LAB_PORT = "18080"
-docker compose up --build
-```
-"""
-            ),
-            title="[title]Lab · Uncle Wang's milk-tea shop[/]",
-            border_style="yellow",
-            box=box.ROUNDED,
-        )
-    )
-    with console.status("[accent]Probing lab ports 8080 / 18080 / 8000…[/]", spinner="dots"):
-        found = _probe_lab()
+def step_lab(state: State, *, auto: bool) -> None:
+    _header("2 lab")
+    found = _probe_lab()
     if found:
-        state.lab_base_url = found
-        _ok(f"Detected lab at {found}/healthz")
+        state.lab = found
+        _ok(f"lab up: {found}")
     else:
-        _warn("Lab not detected automatically.")
-        custom = Prompt.ask("Enter base_url manually", default=state.lab_base_url)
-        state.lab_base_url = custom.rstrip("/")
-    _ensure_workflow_for_lab(state)
-    _info(f"Demo workflow → {state.workflow_path}")
-    _info(f"base_url = {state.lab_base_url}")
+        _err("lab not found on 8080/18080")
+        _out("  docker compose up --build")
+        _out('  or: $env:STATEBREAKER_LAB_PORT="18080"; docker compose up --build')
+        if not auto:
+            state.lab = _read("base_url", state.lab).rstrip("/")
+    _sync_workflow(state)
+    _ok(f"workflow -> {state.workflow.name}  base_url={state.lab}")
     try:
-        with urlopen(f"{state.lab_base_url}/healthz", timeout=3) as response:  # noqa: S310
-            body = response.read().decode("utf-8", errors="replace")
-        _ok(f"healthz → {body.strip()}")
+        with urlopen(f"{state.lab}/healthz", timeout=3) as resp:  # noqa: S310
+            _ok(resp.read().decode("utf-8", errors="replace").strip())
     except (HTTPError, URLError, TimeoutError, OSError) as exc:
-        _warn(f"healthz unreachable: {exc}")
-        _warn("learn/attack will fail until Docker lab is up.")
+        _err(f"healthz failed: {exc}")
 
 
-def step_validate_workflow(state: WizardState) -> None:
-    _run_command(
+def step_validate(state: State, *, auto: bool) -> None:
+    _header("3 validate workflow")
+    _exec(state, [*SB, "workflow", "validate", str(state.workflow)], auto=auto)
+
+
+def step_learn(state: State, *, auto: bool) -> None:
+    _header("4 learn (optional)")
+    out = state.work / "learning-result.json"
+    code = _exec(
         state,
-        title="Validate workflow",
-        argv=[*STATEBREAKER, "workflow", "validate", str(state.workflow_path)],
-        explain="No network I/O — checks step graph and template variables only.",
-    )
-
-
-def step_learn(state: WizardState) -> None:
-    out = state.work_dir / "learning-result.json"
-    code, _ = _run_command(
-        state,
-        title="Learn normal state (learner)",
-        argv=[
-            *STATEBREAKER,
+        [
+            *SB,
             "learn",
-            str(state.workflow_path),
+            str(state.workflow),
             "--plugin",
             "team.delta-learner",
-            "--output",
+            "-o",
             str(out),
         ],
-        explain=(
-            "Replay honest redemptions and propose candidate invariants "
-            "(lab required). Safe to skip."
-        ),
+        auto=auto,
     )
-    if code == 0 and out.is_file():
-        state.learning_path = out
-        data = json.loads(out.read_text(encoding="utf-8"))
-        inv_path = state.work_dir / "learned-invariants.json"
-        invs = data.get("invariants", [])
-        inv_path.write_text(
-            json.dumps(invs, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        table = Table(title="Learned invariants", box=box.ROUNDED, border_style="green")
-        table.add_column("ID", style="accent")
-        table.add_column("Kind")
-        table.add_column("Selector", style="muted")
-        for item in invs[:12]:
-            table.add_row(
-                str(item.get("id", "")),
-                str(item.get("kind", "")),
-                str(item.get("selector", "")),
-            )
-        if invs:
-            console.print(table)
-        _info(f"Learned {len(invs)} candidate(s).")
-        if invs and Confirm.ask(
-            "Use learned invariants instead of examples?", default=False
-        ):
-            state.invariants_path = inv_path
-            _ok(f"invariants = {inv_path.name}")
+    if code != 0 or not out.is_file():
+        return
+    data = json.loads(out.read_text(encoding="utf-8"))
+    invs = data.get("invariants", [])
+    inv_path = state.work / "learned-invariants.json"
+    inv_path.write_text(json.dumps(invs, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _ok(f"{len(invs)} invariant(s) -> {inv_path.name}")
+    if (
+        invs
+        and not auto
+        and _pick("use learned invariants?", {"y": "yes", "n": "no, keep examples"}, "n")
+        == "y"
+    ):
+        state.invariants = inv_path
 
 
-def step_generate(state: WizardState) -> None:
-    out = state.work_dir / "plans.json"
-    code, _ = _run_command(
+
+def step_generate(state: State, *, auto: bool) -> None:
+    _header("5 generate plans")
+    out = state.work / "plans.json"
+    code = _exec(
         state,
-        title="Generate attack plans (generator)",
-        argv=[
-            *STATEBREAKER,
+        [
+            *SB,
             "generate",
-            str(state.workflow_path),
-            str(state.invariants_path),
+            str(state.workflow),
+            str(state.invariants),
             "--plugin",
             "team.race-generator",
-            "--output",
+            "-o",
             str(out),
         ],
-        explain="Build a bounded race AttackPlan list from workflow + invariants.",
+        auto=auto,
     )
-    if code == 0 and out.is_file():
-        state.plans_path = out
-        plans = json.loads(out.read_text(encoding="utf-8"))
-        counts: dict[str, int] = {}
-        for plan in plans:
-            kind = str(plan.get("attack_type", "?"))
-            counts[kind] = counts.get(kind, 0) + 1
-        table = Table(title=f"{len(plans)} plan(s) generated", box=box.ROUNDED)
-        table.add_column("Attack type", style="accent")
-        table.add_column("Count", justify="right")
-        for kind, count in sorted(counts.items()):
-            table.add_row(kind, str(count))
-        console.print(table)
+    if code != 0 or not out.is_file():
+        return
+    state.plans = out
+    plans = json.loads(out.read_text(encoding="utf-8"))
+    _ok(f"{len(plans)} plan(s)")
+    for i, plan in enumerate(plans, 1):
+        _out(f"  {i:2d}. {plan.get('attack_type')}  {plan.get('id')}")
 
 
-def step_select_and_attack(state: WizardState) -> None:
-    if state.plans_path is None or not state.plans_path.is_file():
-        example = state.root / "examples" / "coupon-race" / "attack-plan.yaml"
-        _warn(f"No plans.json — using example plan: {example.name}")
-        plan_path = state.work_dir / "one-plan.json"
-        write_json(plan_path, load_model(example, AttackPlan))
-        state.selected_plan_path = plan_path
-    else:
+def _select_plan(state: State, *, auto: bool) -> Path:
+    if state.plans and state.plans.is_file():
         plans = TypeAdapter(list[AttackPlan]).validate_python(
-            json.loads(state.plans_path.read_text(encoding="utf-8"))
+            json.loads(state.plans.read_text(encoding="utf-8"))
         )
-        table = Table(title="Select an attack plan", box=box.ROUNDED, border_style="cyan")
-        table.add_column("#", style="bold cyan", justify="right")
-        table.add_column("Type", style="accent")
-        table.add_column("Plan ID")
-        for index, plan in enumerate(plans, start=1):
-            table.add_row(str(index), plan.attack_type, plan.id)
-        console.print(table)
-        default_idx = next(
-            (i for i, p in enumerate(plans, start=1) if p.attack_type == "concurrent-replay"),
-            1,
-        )
-        while True:
-            choice = IntPrompt.ask("Plan number", default=default_idx)
-            if 1 <= choice <= len(plans):
-                selected = plans[choice - 1]
-                break
-            _warn("Enter a valid number from the table.")
-        plan_path = state.work_dir / "one-plan.json"
-        write_json(plan_path, selected)
-        state.selected_plan_path = plan_path
-        _ok(f"Selected [accent]{selected.id}[/]")
+    else:
+        example = state.root / "examples" / "coupon-race" / "attack-plan.yaml"
+        plan = load_model(example, AttackPlan)
+        path = state.work / "one-plan.json"
+        write_json(path, plan)
+        return path
 
-    assert state.selected_plan_path is not None
-    out = state.work_dir / "raw-result.json"
-    code, _ = _run_command(
+    default = next(
+        (i for i, p in enumerate(plans, 1) if p.attack_type == "concurrent-replay"),
+        1,
+    )
+    if auto:
+        chosen = plans[default - 1]
+    else:
+        _out("pick a plan number:")
+        for i, plan in enumerate(plans, 1):
+            star = " *" if i == default else ""
+            _out(f"  {i}) {plan.attack_type}  {plan.id}{star}")
+        while True:
+            raw = _read(">", str(default))
+            try:
+                n = int(raw)
+                if 1 <= n <= len(plans):
+                    chosen = plans[n - 1]
+                    break
+            except ValueError:
+                pass
+            _err(f"1..{len(plans)}")
+    path = state.work / "one-plan.json"
+    write_json(path, chosen)
+    _ok(chosen.id)
+    return path
+
+
+def step_attack(state: State, *, auto: bool) -> None:
+    _header("6 attack")
+    state.plan = _select_plan(state, auto=auto)
+    out = state.work / "raw-result.json"
+    code = _exec(
         state,
-        title="Execute attack (executor)",
-        argv=[
-            *STATEBREAKER,
+        [
+            *SB,
             "attack",
-            str(state.selected_plan_path),
+            str(state.plan),
             "--workflow",
-            str(state.workflow_path),
+            str(state.workflow),
             "--plugin",
             "team.race-executor",
-            "--output",
+            "-o",
             str(out),
         ],
-        explain="Send planned requests to the lab and collect before/after state evidence.",
+        auto=auto,
     )
-    if code == 0 and out.is_file():
-        state.raw_result_path = out
-        result = load_model(out, RawAttackResult)
-        table = Table(title="Attack result summary", box=box.ROUNDED, border_style="green")
-        table.add_column("Field", style="muted")
-        table.add_column("Value")
-        table.add_row("before_state", json.dumps(result.before_state, ensure_ascii=False))
-        table.add_row("after_state", json.dumps(result.after_state, ensure_ascii=False))
-        table.add_row(
-            "vulnerability_observed",
-            str(result.plugin_data.get("vulnerability_observed")),
-        )
-        table.add_row(
-            "status codes",
-            str([record.status_code for record in result.responses]),
-        )
-        console.print(table)
-
-
-def step_verify(state: WizardState) -> None:
-    if state.raw_result_path is None or not state.raw_result_path.is_file():
-        _warn("No raw-result — run the attack step first.")
+    if code != 0 or not out.is_file():
         return
-    out = state.work_dir / "findings.json"
-    code, _ = _run_command(
+    state.result = out
+    result = load_model(out, RawAttackResult)
+    _out(f"  before {result.before_state}")
+    _out(f"  after  {result.after_state}")
+    _out(f"  vuln   {result.plugin_data.get('vulnerability_observed')}")
+    _out(f"  codes  {[r.status_code for r in result.responses]}")
+
+
+def step_verify(state: State, *, auto: bool) -> None:
+    _header("7 verify")
+    if not state.result or not state.result.is_file():
+        _err("no attack result — run step 6 first")
+        return
+    out = state.work / "findings.json"
+    code = _exec(
         state,
-        title="Verify invariants (verifier)",
-        argv=[
-            *STATEBREAKER,
+        [
+            *SB,
             "verify",
-            str(state.raw_result_path),
-            str(state.invariants_path),
+            str(state.result),
+            str(state.invariants),
             "--plugin",
             "team.basic-verifier",
-            "--output",
+            "-o",
             str(out),
         ],
-        explain="Compare state evidence to invariants → confirmed / probable / rejected.",
+        auto=auto,
     )
-    if code == 0 and out.is_file():
-        state.findings_path = out
-        findings = TypeAdapter(list[Finding]).validate_python(
-            json.loads(out.read_text(encoding="utf-8"))
-        )
-        table = Table(title="Findings", box=box.ROUNDED, border_style="red")
-        table.add_column("Verdict")
-        table.add_column("ID", style="accent")
-        table.add_column("Title")
-        for finding in findings:
-            style = {
-                "confirmed": "ok",
-                "probable": "warn",
-                "rejected": "muted",
-            }.get(str(finding.verdict), "white")
-            table.add_row(
-                f"[{style}]{finding.verdict}[/]",
-                finding.id,
-                finding.title,
-            )
-        console.print(table)
-
-
-def step_report(state: WizardState) -> None:
-    if state.raw_result_path is None or state.selected_plan_path is None:
-        _warn("Missing attack artifacts — cannot build report.")
+    if code != 0 or not out.is_file():
         return
-    if state.findings_path is None or not state.findings_path.is_file():
-        _warn("No findings yet — report will use an empty findings list.")
-        findings: list[Finding] = []
-    else:
-        findings = TypeAdapter(list[Finding]).validate_python(
-            json.loads(state.findings_path.read_text(encoding="utf-8"))
-        )
-
-    bundle_path = state.work_dir / "run-bundle.json"
-    bundle = RunBundle(
-        workflow=load_model(state.workflow_path, Workflow),
-        attack_plan=load_model(state.selected_plan_path, AttackPlan),
-        result=load_model(state.raw_result_path, RawAttackResult),
-        findings=findings,
+    state.findings = out
+    findings = TypeAdapter(list[Finding]).validate_python(
+        json.loads(out.read_text(encoding="utf-8"))
     )
-    write_json(bundle_path, bundle)
-    _ok(f"RunBundle → {bundle_path.name}")
+    for f in findings:
+        _out(f"  [{f.verdict}] {f.id}")
 
-    report_dir = state.work_dir / "report"
-    code, _ = _run_command(
+
+def step_report(state: State, *, auto: bool) -> None:
+    _header("8 report")
+    if not state.result or not state.plan:
+        _err("no attack artifacts — run step 6 first")
+        return
+    findings: list[Finding] = []
+    if state.findings and state.findings.is_file():
+        findings = TypeAdapter(list[Finding]).validate_python(
+            json.loads(state.findings.read_text(encoding="utf-8"))
+        )
+    bundle_path = state.work / "run-bundle.json"
+    write_json(
+        bundle_path,
+        RunBundle(
+            workflow=load_model(state.workflow, Workflow),
+            attack_plan=load_model(state.plan, AttackPlan),
+            result=load_model(state.result, RawAttackResult),
+            findings=findings,
+        ),
+    )
+    report_dir = state.work / "report"
+    code = _exec(
         state,
-        title="Render PDF report (reporter)",
-        argv=[
-            *STATEBREAKER,
+        [
+            *SB,
             "report",
             str(bundle_path),
             "--plugin",
@@ -605,147 +401,113 @@ def step_report(state: WizardState) -> None:
             "--output-dir",
             str(report_dir),
         ],
-        explain="Render the full RunBundle to statebreaker-report.pdf.",
+        auto=auto,
     )
     if code == 0:
-        state.report_dir = report_dir
         pdf = report_dir / "statebreaker-report.pdf"
-        _ok(f"PDF → {pdf.resolve()}")
-        if pdf.is_file() and Confirm.ask("Open PDF with the system default app?", default=False):
-            _open_path(pdf)
+        _ok(str(pdf.resolve()))
+        if not auto and pdf.is_file() and _pick("open PDF?", {"y": "yes", "n": "no"}, "n") == "y":
+            _open(pdf)
 
 
-def _open_path(path: Path) -> None:
+def _open(path: Path) -> None:
     try:
         if sys.platform == "win32":
             import os
 
-            os.startfile(str(path))  # noqa: S606 - open local report file
+            os.startfile(str(path))  # noqa: S606
         elif sys.platform == "darwin":
             subprocess.run(["open", str(path)], check=False)
         else:
-            opener = shutil.which("xdg-open")
-            if opener:
-                subprocess.run([opener, str(path)], check=False)
+            bin_ = shutil.which("xdg-open")
+            if bin_:
+                subprocess.run([bin_, str(path)], check=False)
     except OSError as exc:
-        _fail(f"Could not open file: {exc}")
+        _err(str(exc))
 
 
-def step_show_artifacts(state: WizardState) -> None:
-    files = Table(title="Artifacts", box=box.ROUNDED, border_style="blue")
-    files.add_column("Path", style="accent")
-    files.add_column("Size", justify="right")
-    for path in sorted(state.work_dir.rglob("*")):
+def step_show(state: State, *, auto: bool = False) -> None:
+    _header("artifacts")
+    _out(str(state.work.resolve()))
+    for path in sorted(state.work.rglob("*")):
         if path.is_file():
-            files.add_row(str(path.relative_to(state.root)), f"{path.stat().st_size} B")
-    console.print(files)
-
-    hist = Table(title="Step history", box=box.SIMPLE)
-    hist.add_column("Event")
-    for item in state.history:
-        style = "ok" if item.startswith("OK") else "warn" if item.startswith("SKIP") else "fail"
-        hist.add_row(f"[{style}]{item}[/]")
-    console.print(hist)
+            rel = path.relative_to(state.root)
+            _out(f"  {rel}  ({path.stat().st_size}b)")
 
 
-def run_guided(state: WizardState) -> None:
-    steps: list[tuple[str, str, Callable[[WizardState], None]]] = [
-        ("1/8", "Environment check", step_check_env),
-        ("2/8", "Detect lab", step_check_lab),
-        ("3/8", "Validate workflow", step_validate_workflow),
-        ("4/8", "Learn rules (optional)", step_learn),
-        ("5/8", "Generate attack plans", step_generate),
-        ("6/8", "Select plan & attack", step_select_and_attack),
-        ("7/8", "Verify findings", step_verify),
-        ("8/8", "Generate PDF report", step_report),
-    ]
-    for index, title, fn in steps:
-        _step_header(title, index)
-        _status_bar(state)
-        cont = _choose(
-            f"Enter step: {title}?",
-            [
-                ("y", "Enter this step"),
-                ("s", "Skip entire step"),
-                ("q", "End wizard"),
-            ],
-            default="y",
-        )
-        if cont == "q":
-            break
-        if cont == "s":
-            state.history.append(f"SKIP-STEP {index} {title}")
-            _warn(f"Skipped {title}")
-            continue
-        fn(state)
-    _step_header("Summary")
-    step_show_artifacts(state)
-    console.print(
-        Panel(
-            f"[ok]Demo finished.[/]\nArtifacts: [accent]{state.work_dir.resolve()}[/]",
-            border_style="green",
-            box=box.DOUBLE,
-        )
-    )
+def run_all(state: State, *, auto: bool, skip_learn: bool) -> None:
+    step_env(state, auto=auto)
+    step_lab(state, auto=auto)
+    step_validate(state, auto=auto)
+    if not skip_learn:
+        step_learn(state, auto=auto)
+    else:
+        _out("(learn skipped)")
+    step_generate(state, auto=auto)
+    step_attack(state, auto=auto)
+    step_verify(state, auto=auto)
+    step_report(state, auto=auto)
+    step_show(state)
 
 
-def run_menu(state: WizardState) -> None:
-    actions: dict[str, tuple[str, Callable[[WizardState], None] | None]] = {
-        "1": ("Environment check", step_check_env),
-        "2": ("Detect lab / align workflow", step_check_lab),
-        "3": ("Validate workflow", step_validate_workflow),
-        "4": ("Learn (learner)", step_learn),
-        "5": ("Generate plans (generator)", step_generate),
-        "6": ("Attack (executor)", step_select_and_attack),
-        "7": ("Verify (verifier)", step_verify),
-        "8": ("PDF report (reporter)", step_report),
-        "9": ("Show artifacts & history", step_show_artifacts),
-        "g": ("Guided full pipeline", run_guided),
-        "q": ("Quit", None),
+def run_menu(state: State) -> None:
+    actions = {
+        "1": ("environment", step_env),
+        "2": ("lab detect", step_lab),
+        "3": ("validate workflow", step_validate),
+        "4": ("learn", step_learn),
+        "5": ("generate plans", step_generate),
+        "6": ("attack", step_attack),
+        "7": ("verify", step_verify),
+        "8": ("PDF report", step_report),
+        "9": ("list artifacts", step_show),
+        "a": ("run ALL steps (ask each command)", None),
+        "q": ("quit", None),
     }
     while True:
-        _status_bar(state)
-        choice = _choose(
-            "Main menu",
-            [(key, label) for key, (label, _) in actions.items()],
-            default="g",
-        )
+        _header("StateBreaker demo")
+        _out(f"lab  {state.lab}")
+        _out(f"work {state.work}")
+        _out()
+        for key, (label, _) in actions.items():
+            _out(f"  {key}) {label}")
+        choice = _read(">", "a").lower()
+        if choice not in actions:
+            _err("unknown option")
+            continue
         label, fn = actions[choice]
-        if fn is None:
-            console.print("[muted]Bye.[/]")
+        if choice == "q":
+            _out("bye")
             return
-        if choice == "g":
-            fn(state)
-            return
-        _step_header(label)
-        fn(state)
+        if choice == "a":
+            skip = _pick("include learn step?", {"y": "yes", "n": "skip learn"}, "n") == "n"
+            run_all(state, auto=False, skip_learn=skip)
+            continue
+        assert fn is not None
+        fn(state, auto=False)
 
 
-def main_wizard(*, root: Path | None = None, guided: bool = False) -> None:
+def main_wizard(
+    *,
+    root: Path | None = None,
+    guided: bool = False,
+    auto: bool = False,
+    skip_learn: bool = True,
+) -> None:
     root_path = (root or Path.cwd()).resolve()
     if not (root_path / "examples" / "coupon-race").is_dir():
-        console.print(
-            "[fail]Error:[/] run from the StateBreaker repo root "
-            "(needs [accent]examples/coupon-race[/])."
-        )
+        _err("run from StateBreaker repo root (need examples/coupon-race)")
         raise SystemExit(2)
-    _banner()
-    state = _default_paths(root_path)
-    console.print(f"[muted]Repo root:[/]  [accent]{root_path}[/]")
-    console.print(f"[muted]Artifacts:[/]  [accent]{state.work_dir}[/]")
-    console.print()
-    if guided:
-        run_guided(state)
+
+    state = _init(root_path)
+    _out("StateBreaker demo")
+    _out(f"root {root_path}")
+    _out(f"work {state.work}")
+
+    if auto:
+        run_all(state, auto=True, skip_learn=skip_learn)
         return
-    mode = _choose(
-        "Select mode",
-        [
-            ("g", "Guided mode — walk the full pipeline in order (recommended)"),
-            ("m", "Menu mode — pick each step freely"),
-        ],
-        default="g",
-    )
-    if mode == "g":
-        run_guided(state)
-    else:
-        run_menu(state)
+    if guided:
+        run_all(state, auto=False, skip_learn=skip_learn)
+        return
+    run_menu(state)
