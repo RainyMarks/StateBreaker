@@ -8,6 +8,15 @@
 statebreaker interactive
 ```
 
+语言可以在启动时选择：
+
+```powershell
+statebreaker interactive --zh
+statebreaker interactive --en
+```
+
+进入实验台后按 `9` 也可以在中文和英文之间即时切换，已有实验状态和阶段产物不会丢失。
+
 界面会先展示通用六阶段骨架，再加载当前的 `coupon-race` 参考场景。它不是一键执行：你可以
 按 `1 → 2 → 3 → 4 → 5 → 6 → 7` 逐步操作，每一步都会显示输入模型、插件 ID、真实请求、
 状态证据和生成的标准产物。执行真实请求前还会再次要求确认。

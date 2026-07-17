@@ -137,6 +137,19 @@ def test_interactive_workbench_exposes_generic_stages_and_can_exit() -> None:
     assert "实验已保留" in result.stdout
 
 
+def test_interactive_workbench_supports_english_and_runtime_language_switch() -> None:
+    english = runner.invoke(app, ["interactive", "--en"], input="0\n")
+    assert english.exit_code == 0
+    assert "Loaded reference scenario" in english.stdout
+    assert "Choose the next step" in english.stdout
+    assert "Experiment saved" in english.stdout
+
+    switched = runner.invoke(app, ["interactive", "--zh"], input="9\n0\n")
+    assert switched.exit_code == 0
+    assert "Switch to English" in switched.stdout
+    assert "Leave the workbench" in switched.stdout
+
+
 def test_plan_list_and_select_are_separate_steps(tmp_path: Path) -> None:
     plan = load_model(ROOT / "examples/coupon-race/attack-plan.yaml", AttackPlan)
     plans_path = tmp_path / "plans.json"

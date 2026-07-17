@@ -13,6 +13,7 @@ statebreaker interactive
 ```
 
 它会显示通用阶段菜单，但当前默认加载奶茶券竞态参考场景；不会自动替你执行完整攻击。
+使用 `statebreaker interactive --en` 或 `--zh` 选择界面语言，运行中按 `9` 可即时切换。
 
 ```powershell
 python -m pip install -e .\race-generator -e .\race-executor `

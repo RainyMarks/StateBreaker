@@ -86,14 +86,18 @@ def _abort(message: str, code: int) -> None:
     raise typer.Exit(code=code)
 
 
-def _interactive_header() -> None:
+def _interactive_header(language: str) -> None:
     typer.echo("\nStateBreaker Interactive Workbench")
     typer.echo("=" * 38)
     typer.echo("Capture → Learn → Generate → Execute → Verify → Report")
-    typer.echo("通用核心负责契约、插件、HTTP 运行时和证据；场景由外部配置与插件提供。")
+    if language == "en":
+        typer.echo("The generic core provides contracts, plugins, HTTP runtime, and evidence.")
+        typer.echo("Scenarios are supplied by external configuration and plugins.")
+    else:
+        typer.echo("通用核心负责契约、插件、HTTP 运行时和证据；场景由外部配置与插件提供。")
 
 
-def _interactive_status(output_dir: Path) -> None:
+def _interactive_status(output_dir: Path, language: str) -> None:
     artifacts = (
         ("AttackPlan[]", output_dir / "attack-plans.json"),
         ("Selected AttackPlan", output_dir / "selected-plan.json"),
@@ -102,7 +106,7 @@ def _interactive_status(output_dir: Path) -> None:
         ("RunBundle", output_dir / "run-bundle.json"),
         ("Report", output_dir / "report" / "artifacts.json"),
     )
-    typer.echo("\n当前标准产物：")
+    typer.echo("\nStandard artifacts:" if language == "en" else "\n当前标准产物：")
     for label, path in artifacts:
         marker = "READY" if path.exists() else "----"
         typer.echo(f"  [{marker}] {label:<20} {path}")
@@ -449,10 +453,15 @@ def interactive_workbench(
         str, typer.Option("--preset", help="参考场景名称，或 custom。")
     ] = "coupon-race",
     target: Annotated[str | None, typer.Option("--target")] = None,
+    english: Annotated[bool, typer.Option("--en", help="Use the English interface.")] = False,
+    chinese: Annotated[bool, typer.Option("--zh", help="使用中文界面。")] = False,
 ) -> None:
     """逐步选择并观察各插件阶段的交互式实验台。"""
 
-    _interactive_header()
+    if english and chinese:
+        _abort("--en and --zh cannot be used together", EXIT_VALIDATION)
+    language = "en" if english else "zh"
+    _interactive_header(language)
     if preset == "coupon-race":
         workflow_path = Path("examples/coupon-race/workflow.yaml")
         invariants_path = Path("examples/coupon-race/invariants.yaml")
@@ -462,8 +471,12 @@ def interactive_workbench(
         verifier_id = "team.basic-verifier"
         reporter_id: str | None = "team.pdf-reporter"
         attack_type = "concurrent-replay"
-        typer.echo("已加载参考场景：Lao Wang Milk Tea / Coupon Race")
-        typer.echo("注意：这是装入通用骨架的当前参考实现，不是核心内置字段。")
+        if language == "en":
+            typer.echo("Loaded reference scenario: Lao Wang Milk Tea / Coupon Race")
+            typer.echo("This is the current implementation loaded into the generic core.")
+        else:
+            typer.echo("已加载参考场景：Lao Wang Milk Tea / Coupon Race")
+            typer.echo("注意：这是装入通用骨架的当前参考实现，不是核心内置字段。")
     elif preset == "custom":
         workflow_path = Path(typer.prompt("Workflow 文件"))
         invariants_path = Path(typer.prompt("Invariant 文件"))
@@ -488,10 +501,12 @@ def interactive_workbench(
     findings_path = output_dir / "findings.json"
     bundle_path = output_dir / "run-bundle.json"
 
-    typer.echo(f"目标：{target or '(from Workflow)'}")
-    typer.echo(f"实验目录：{output_dir.resolve()}")
+    target_label = "Target" if language == "en" else "目标"
+    directory_label = "Experiment directory" if language == "en" else "实验目录"
+    typer.echo(f"{target_label}: {target or '(from Workflow)'}")
+    typer.echo(f"{directory_label}: {output_dir.resolve()}")
 
-    menu = """
+    menu_zh = """
 [1] Inspect   查看 Workflow 与业务规则（不发请求）
 [2] Replay    顺序重放正常业务流程
 [3] Generate  调用 Generator 生成候选攻击计划
@@ -500,13 +515,29 @@ def interactive_workbench(
 [6] Verify    根据业务状态证据验证结果
 [7] Report    组装 RunBundle 并生成报告
 [8] Status    查看当前标准产物
+[9] Language  Switch to English
 [0] Exit      退出实验台
 """
+    menu_en = """
+[1] Inspect   Show the Workflow and invariants (no requests)
+[2] Replay    Replay the normal workflow sequentially
+[3] Generate  Generate candidate attack plans
+[4] Select    Select one AttackPlan interactively
+[5] Execute   Execute it and show timing and state differences
+[6] Verify    Verify the result using business-state evidence
+[7] Report    Build a RunBundle and render the report
+[8] Status    Show the current standard artifacts
+[9] Language  切换到中文
+[0] Exit      Leave the workbench
+"""
     while True:
+        menu = menu_en if language == "en" else menu_zh
         typer.echo(menu)
-        choice = typer.prompt("请选择下一步", default="8").strip()
+        prompt = "Choose the next step" if language == "en" else "请选择下一步"
+        choice = typer.prompt(prompt, default="8").strip()
         if choice == "0":
-            typer.echo(f"实验已保留：{output_dir.resolve()}")
+            message = "Experiment saved" if language == "en" else "实验已保留"
+            typer.echo(f"{message}: {output_dir.resolve()}")
             return
         if choice == "1":
             show_workflow(workflow_path, target)
@@ -514,32 +545,47 @@ def interactive_workbench(
         elif choice == "2":
             replay_workflow(workflow_path, target, output_dir / "replays")
         elif choice == "3":
-            typer.echo(f"调用插件：{generator_id}")
+            typer.echo(f"{'Plugin' if language == 'en' else '调用插件'}: {generator_id}")
             generate(workflow_path, invariants_path, generator_id, plans_path)
         elif choice == "4":
             if not plans_path.exists():
-                typer.echo("请先执行 [3] Generate。")
+                typer.echo(
+                    "Run [3] Generate first."
+                    if language == "en"
+                    else "请先执行 [3] Generate。"
+                )
                 continue
             list_attack_plans(plans_path)
-            selected_type = typer.prompt("选择 attack_type", default=attack_type)
+            select_prompt = "Select attack_type" if language == "en" else "选择 attack_type"
+            selected_type = typer.prompt(select_prompt, default=attack_type)
             select_plan_command(plans_path, selected_path, None, selected_type)
         elif choice == "5":
             if not selected_path.exists():
-                typer.echo("请先执行 [4] Select。")
+                typer.echo("Run [4] Select first." if language == "en" else "请先执行 [4] Select。")
                 continue
-            if not typer.confirm("即将向当前目标发送真实请求，继续？", default=False):
+            confirm_text = (
+                "Real requests will be sent to the current target. Continue?"
+                if language == "en"
+                else "即将向当前目标发送真实请求，继续？"
+            )
+            if not typer.confirm(confirm_text, default=False):
                 continue
-            typer.echo(f"调用插件：{executor_id}")
+            typer.echo(f"{'Plugin' if language == 'en' else '调用插件'}: {executor_id}")
             attack(selected_path, workflow_path, executor_id, target, result_path, True)
         elif choice == "6":
             if not result_path.exists():
-                typer.echo("请先执行 [5] Execute。")
+                message = "Run [5] Execute first." if language == "en" else "请先执行 [5] Execute。"
+                typer.echo(message)
                 continue
-            typer.echo(f"调用插件：{verifier_id}")
+            typer.echo(f"{'Plugin' if language == 'en' else '调用插件'}: {verifier_id}")
             verify(result_path, invariants_path, verifier_id, findings_path)
         elif choice == "7":
             if not selected_path.exists() or not result_path.exists() or not findings_path.exists():
-                typer.echo("Report 需要 Selected AttackPlan、RawAttackResult 和 Finding[]。")
+                typer.echo(
+                    "Report requires Selected AttackPlan, RawAttackResult, and Finding[]."
+                    if language == "en"
+                    else "Report 需要 Selected AttackPlan、RawAttackResult 和 Finding[]。"
+                )
                 continue
             build_bundle(
                 workflow_path,
@@ -550,14 +596,21 @@ def interactive_workbench(
                 bundle_path,
             )
             if reporter_id is None:
-                typer.echo("未选择 Reporter；RunBundle 已生成。")
+                typer.echo(
+                    "No Reporter selected; RunBundle is ready."
+                    if language == "en"
+                    else "未选择 Reporter；RunBundle 已生成。"
+                )
             else:
-                typer.echo(f"调用插件：{reporter_id}")
+                typer.echo(f"{'Plugin' if language == 'en' else '调用插件'}: {reporter_id}")
                 report(bundle_path, reporter_id, output_dir / "report")
         elif choice == "8":
-            _interactive_status(output_dir)
+            _interactive_status(output_dir, language)
+        elif choice == "9":
+            language = "zh" if language == "en" else "en"
+            _interactive_header(language)
         else:
-            typer.echo("请输入 0—8。")
+            typer.echo("Enter a number from 0 to 9." if language == "en" else "请输入 0—9。")
 
 
 @app.command()
