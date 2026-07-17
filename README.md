@@ -64,6 +64,8 @@ StateBreaker/
 ├─ race-generator/            # 优惠券竞态攻击计划生成插件
 ├─ race-executor/             # 优惠券竞态攻击检测执行插件
 ├─ statebreaker-learner-delta/ # 多轮正常状态差分 learner 插件
+├─ statebreaker-verifier-basic/ # 最小状态证据 verifier 插件
+├─ statebreaker-reporter-pdf/  # 最小 PDF reporter 插件
 ├─ labs/coupon-race/          # “老王奶茶券”Docker 竞态靶场
 ├─ examples/coupon-race/      # 示例 Workflow、Invariant、AttackPlan
 ├─ docs/                      # 架构、契约和插件说明
@@ -1229,6 +1231,8 @@ docker compose down
 - [竞态攻击计划生成插件](race-generator/README.md)
 - [竞态攻击检测执行插件](race-executor/README.md)
 - [差分 learner 插件](statebreaker-learner-delta/README.md)
+- [基础 verifier 插件](statebreaker-verifier-basic/README.md)
+- [PDF reporter 插件](statebreaker-reporter-pdf/README.md)
 - [优惠券 Workflow 示例](examples/coupon-race/workflow.yaml)
 - [优惠券 Invariant 示例](examples/coupon-race/invariants.yaml)
 - [优惠券 AttackPlan 示例](examples/coupon-race/attack-plan.yaml)

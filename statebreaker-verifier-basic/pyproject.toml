@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "statebreaker-verifier-basic"
+version = "0.1.0"
+description = "Minimal state-evidence verifier for StateBreaker"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["statebreaker>=0.1,<0.2"]
+
+[project.entry-points."statebreaker.verifier"]
+team-basic-verifier = "statebreaker_verifier_basic.plugin:BasicVerifierPlugin"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
