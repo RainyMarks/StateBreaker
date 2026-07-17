@@ -328,31 +328,5 @@ def report(
         _abort(str(exc), EXIT_RUNTIME)
 
 
-@app.command("demo")
-def demo_wizard(
-    guided: Annotated[
-        bool,
-        typer.Option("--guided", "-g", help="Run full pipeline; confirm each command"),
-    ] = False,
-    auto: Annotated[
-        bool,
-        typer.Option("--auto", "-y", help="Run full pipeline with no prompts"),
-    ] = False,
-    learn: Annotated[
-        bool,
-        typer.Option("--learn", help="Include learner step in guided/auto runs"),
-    ] = False,
-    root: Annotated[
-        Path | None,
-        typer.Option("--root", help="StateBreaker repo root (default: cwd)"),
-    ] = None,
-) -> None:
-    """Minimal demo: menu or full pipeline (show command → r/s/q → output)."""
-
-    from statebreaker.wizard import main_wizard
-
-    main_wizard(root=root, guided=guided or auto, auto=auto, skip_learn=not learn)
-
-
 def main() -> None:
     app()

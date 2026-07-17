@@ -210,18 +210,6 @@ docker compose down
 
 ## 4. CLI 快速体验
 
-### Demo CLI (minimal)
-
-```bash
-# start lab first, install plugins, then:
-statebreaker demo              # menu: type 1-9 / a / q
-statebreaker demo --guided     # full pipeline; each command asks r/s/q
-statebreaker demo --auto       # full pipeline, no prompts
-statebreaker demo --guided --learn   # include learner step
-```
-
-Keys: `r` run · `s` skip · `q` quit. Artifacts: `.statebreaker/wizard/`.
-
 ### 校验示例工作流
 
 ```bash
