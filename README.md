@@ -210,6 +210,19 @@ docker compose down
 
 ## 4. CLI 快速体验
 
+### Interactive English demo wizard
+
+Walk the full coupon-race pipeline step by step (show command → confirm → run → next):
+
+```bash
+# install demo plugins first (see plugin READMEs), start the lab, then:
+statebreaker demo
+# or skip the mode menu:
+statebreaker demo --guided
+```
+
+Artifacts land in `.statebreaker/wizard/`.
+
 ### 校验示例工作流
 
 ```bash

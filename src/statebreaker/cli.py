@@ -328,5 +328,23 @@ def report(
         _abort(str(exc), EXIT_RUNTIME)
 
 
+@app.command("demo")
+def demo_wizard(
+    guided: Annotated[
+        bool,
+        typer.Option("--guided", "-g", help="Skip mode menu; start guided pipeline"),
+    ] = False,
+    root: Annotated[
+        Path | None,
+        typer.Option("--root", help="StateBreaker repo root (default: cwd)"),
+    ] = None,
+) -> None:
+    """Interactive English demo wizard: show each command, run, then next step."""
+
+    from statebreaker.wizard import main_wizard
+
+    main_wizard(root=root, guided=guided)
+
+
 def main() -> None:
     app()
