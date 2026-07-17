@@ -102,3 +102,33 @@ def test_cli_workflow_import_writes_revalidatable_json(tmp_path: Path) -> None:
     assert isinstance(workflow, Workflow)
     validate_result = CliRunner().invoke(app, ["workflow", "validate", str(output)])
     assert validate_result.exit_code == 0, validate_result.output
+
+
+def test_cli_workflow_import_passes_options_file(tmp_path: Path) -> None:
+    output = tmp_path / "workflow.json"
+    options = tmp_path / "capture-options.yaml"
+    options.write_text(
+        "state_probe_entry_indices: [0]\nstrip_credentials: true\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "workflow",
+            "import",
+            str(FIXTURES / "replayable-json.har"),
+            "--plugin",
+            "har.capture",
+            "--options",
+            str(options),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    workflow = Workflow.model_validate(json.loads(output.read_text(encoding="utf-8")))
+    assert workflow.state_probe_steps == [workflow.steps[0].id]
+    assert "authorization" not in workflow.steps[0].request.headers
+    assert "cookie" not in workflow.steps[0].request.headers

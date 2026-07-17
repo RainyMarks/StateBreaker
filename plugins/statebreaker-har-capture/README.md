@@ -38,6 +38,9 @@ Indices are zero-based positions in the original `log.entries` array. They must 
 non-negative, in range, and refer to a generated step. Selected steps use the `probe` role
 and are listed in `state_probe_steps`.
 
-The current core `statebreaker workflow import` command always supplies an empty options
-dictionary, so state probes cannot yet be selected from the CLI. This plugin does not modify
-the core CLI to add that capability.
+The core CLI accepts the same mapping from a JSON or YAML file:
+
+```bash
+statebreaker workflow import recording.har --plugin har.capture \
+  --options capture-options.yaml --output workflow.json
+```

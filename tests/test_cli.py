@@ -6,6 +6,8 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from statebreaker.cli import app
+from statebreaker.documents import load_model, write_json
+from statebreaker.models import AttackPlan
 
 runner = CliRunner()
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,8 +89,37 @@ def test_pipeline_missing_plugin_has_plugin_exit_code(tmp_path: Path) -> None:
     assert "not found" in result.stderr
 
 
-def test_demo_is_a_non_interactive_command() -> None:
-    result = runner.invoke(app, ["demo", "--help"])
+def test_cli_exposes_stepwise_race_workflow() -> None:
+    result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "--target" in result.stdout
-    assert "--no-report" in result.stdout
+    for command in ("workflow", "invariants", "plans", "attack", "verify", "bundle"):
+        assert command in result.stdout
+    assert "demo" not in result.stdout
+
+
+def test_plan_list_and_select_are_separate_steps(tmp_path: Path) -> None:
+    plan = load_model(ROOT / "examples/coupon-race/attack-plan.yaml", AttackPlan)
+    plans_path = tmp_path / "plans.json"
+    selected_path = tmp_path / "selected.json"
+    write_json(plans_path, [plan])
+
+    listed = runner.invoke(app, ["plans", "list", str(plans_path)])
+    assert listed.exit_code == 0
+    assert "concurrent-replay" in listed.stdout
+    assert "double-hand-coupon" in listed.stdout
+
+    selected = runner.invoke(
+        app,
+        [
+            "plans",
+            "select",
+            str(plans_path),
+            "--attack-type",
+            "concurrent-replay",
+            "--output",
+            str(selected_path),
+        ],
+    )
+    assert selected.exit_code == 0
+    assert selected_path.exists()
+    assert load_model(selected_path, AttackPlan).id == "double-hand-coupon"
