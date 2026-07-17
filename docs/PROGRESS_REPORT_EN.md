@@ -1,374 +1,167 @@
-# StateBreaker Progress Report (English)
+# StateBreaker Current Project Status
 
-**Repository:** [RainyMarks/StateBreaker](https://github.com/RainyMarks/StateBreaker)  
-**Baseline:** v0.1 interface skeleton (initial `main`)  
-**Report date:** 2026-07-17  
-**Current trunk:** Minimal learner → generator → executor → verifier → reporter chain integrated on `main`
+- **Repository:** [RainyMarks/StateBreaker](https://github.com/RainyMarks/StateBreaker)
+- **Core version/API:** `0.1.0` / `0.1`
+- **Updated:** 2026-07-17
+**Development state:** Capture is merged into `main`; the stepwise CLI and English-default lab UI are in PR #5
 
----
+## 1. What the project is now
 
-## 1. What the original skeleton provided
+StateBreaker is an extensible framework for business-state vulnerabilities such as concurrent
+coupon reuse, double spending, one-time-token replay, cross-user claims, and workflow skipping.
 
-StateBreaker v0.1 is **not** a finished vulnerability scanner. It is:
+It is no longer an empty interface skeleton, but it is not yet a general-purpose scanner. The
+accurate description is:
 
-> **Versioned contracts + shared HTTP runtime + plugin bus + CLI + a demo lab**
+> A working minimal system for normal-flow replay, candidate invariants, attack-plan generation,
+> real concurrent execution, state-based verification, and PDF reporting, plus a first HAR
+> importer and a deterministic local race-condition lab.
 
-| Component | Initial state |
-|-----------|---------------|
-| Core `src/statebreaker` | Present: models, runtime, plugin discovery, CLI |
-| Six-stage pipeline | **Sockets only** — no business algorithms |
-| `plugin-template` | Present: dry-run executor (no network) |
-| `labs/coupon-race` | Present: “Uncle Wang’s milk-tea” BUG50 race lab |
-| `examples/coupon-race` | Present: hand-written Workflow / Invariant / AttackPlan |
-| Real plugins | **None** for capture / learner / generator / executor / verifier / reporter |
+## 2. Repository contents
 
-Documented target flow:
+```text
+src/statebreaker/                   contracts, runtime, discovery, pipeline, CLI
+plugins/statebreaker-har-capture/   HAR 1.2 Capture plugin
+statebreaker-learner-delta/         normal-state delta Learner
+race-generator/                     race AttackPlan Generator
+race-executor/                      bounded concurrent Executor
+statebreaker-verifier-basic/        state-evidence Verifier
+statebreaker-reporter-pdf/          PDF Reporter
+plugin-template/                    starter package for team members
+labs/coupon-race/                   Lao Wang BUG50 Docker lab
+examples/coupon-race/               Workflow, Invariant, AttackPlan examples
+docs/                               demo, architecture, contracts, development guides
+```
+
+## 3. Six-stage status
 
 ```text
 capture → learner → generator → executor → verifier → reporter
-  ❌        ❌         ❌          ❌         ❌         ❌
+   ✅        ✅         ✅          ✅         ✅         ✅
 ```
 
-What you could do then:
+| Stage | plugin_id | Implemented | Current boundary |
+|---|---|---|---|
+| Capture | `har.capture` | offline HAR 1.2, same-origin checks, JSON/Form, Cookie/Auth | no automatic dynamic-ID/Extractor inference; one origin |
+| Learner | `team.delta-learner` | repeated baseline samples; max-delta/min/transition candidates | observed candidates require human confirmation |
+| Generator | `team.race-generator` | concurrent, burst, offset, idempotency and other plans | target recognition remains coupon/race oriented |
+| Executor | `team.race-executor` | real HTTP, bounded concurrency, snapshots and timing evidence | no production Last-Byte Gate yet |
+| Verifier | `team.basic-verifier` | max-delta, minimum, count, single-use, transition | needs observable business state |
+| Reporter | `team.pdf-reporter` | PDF and JSON summary | portable Latin PDF fonts |
 
-1. `statebreaker doctor` / `workflow validate`
-2. Start the lab in Docker and **manually** click honest redeem / double-speed race
-3. Install the template and prove entry-point discovery  
+`template.dry-run` remains available for plugin-discovery teaching and sends no requests.
 
-What you **could not** do: learn rules, generate attack plans, run concurrent races, emit formal Findings, or produce a PDF report.
+## 4. What the core provides
 
----
+- versioned Pydantic models and exported JSON Schema;
+- one isolated `httpx.AsyncClient` and Cookie Jar per named session;
+- recursive `${variable}` rendering;
+- JSONPath, response-header, and regex extraction;
+- redacted event logs for Authorization, Cookie, password, token, and secret fields;
+- JSONL events, correlation IDs, request ordinals, and monotonic timing;
+- Entry Point discovery, API compatibility checks, and duplicate-ID detection;
+- stable exit codes: input 2, plugin 3, runtime 4;
+- a stepwise human-inspectable CLI and an automated CI pipeline.
 
-## 2. Progress vs. the skeleton
+## 5. Stepwise CLI
+
+The deleted interactive wizard has not been restored. The current CLI exposes the actual method:
 
 ```text
-capture → learner → generator → executor → verifier → reporter
-  ❌        ✅         ✅          ✅         ✅         ✅
-         delta learn  race plans  bounded run  state judge  PDF report
+workflow show/replay
+→ invariants show
+→ generate
+→ plans list/select
+→ attack
+→ verify
+→ bundle build
+→ report
 ```
 
-| Stage | Package | plugin_id | Status |
-|-------|---------|-----------|--------|
-| capture | — | — | **Not started** |
-| learner | `statebreaker-learner-delta` | `team.delta-learner` | Done (baseline deltas) |
-| generator | `race-generator` | `team.race-generator` | Done (coupon race–oriented) |
-| executor | `race-executor` | `team.race-executor` | Done (coupon race–oriented) |
-| verifier | `statebreaker-verifier-basic` | `team.basic-verifier` | Done (minimal) |
-| reporter | `statebreaker-reporter-pdf` | `team.pdf-reporter` | Done (PDF) |
+The `attack` command prints real SEND/DONE relative timing, HTTP statuses, server check/commit
+evidence, before/after state, and numeric deltas. `pipeline run` is retained for CI and batch jobs.
 
-Still kept: `plugin-template` → `template.dry-run` (teaching only).
+See the [Chinese live demo guide](DEMO_GUIDE_ZH.md) and [CLI reference](cli.md).
 
----
+## 6. Lao Wang coupon-race lab
 
-## 3. What each module does
-
-### 3.1 learner (`team.delta-learner`)
-
-- Replays a normal Workflow **N times** and compares `state_probe_steps` before/after  
-- Proposes candidate Invariants: `max-delta` / `min-value` / `state-transition`  
-- Explicitly marks bounds as **observed** (`bound_source: observed_maximum`), not proven business truth  
-- Example: learn “discount increases by at most +50” from honest single redemption  
-
-### 3.2 generator (`team.race-generator`)
-
-- Input: Workflow + Invariant[] → deterministic `AttackPlan[]` (hard cap on plan count)  
-- Covers concurrent replay, burst, offset sweep, idempotency-key reuse, mid-state probe, run-pool eviction, etc.  
-- Embeds an invariant snapshot into each plan for downstream evaluation  
-- **Domain:** coupon/race lab markers and scenarios  
-
-### 3.3 executor (`team.race-executor`)
-
-- Sends real HTTP (or ASGI lab tests), records before/after state and lab events  
-- Bounded concurrency and multiple schedule strategies  
-- `plugin_data.vulnerability_observed` is a **heuristic**, not a formal Finding  
-- Batch CLI: `statebreaker-coupon-audit`  
-
-### 3.4 verifier (`team.basic-verifier`)
-
-- Compares before/after state + responses against Invariants  
-- Emits formal `Finding`s: `confirmed` / `probable` / `rejected`  
-- Supports common kinds such as `max-delta`  
-
-### 3.5 reporter (`team.pdf-reporter`)
-
-- Input: full `RunBundle`  
-- Output: `statebreaker-report.pdf` (+ `report-summary.json`)  
-
-### 3.6 Engineering
-
-- CI installs and tests plugin packages  
-- Plugin failures use `PluginError` / stable CLI exit codes  
-- Review hardening: invariant-backed evidence, option semantics, honest observed-bound labeling  
-
----
-
-## 4. Still missing / boundaries
-
-| Item | Note |
-|------|------|
-| **capture** | No HAR/traffic → Workflow plugin yet |
-| Domain coupling | generator/executor still coupon-lab oriented |
-| One-shot orchestration | No single command for full learn→…→report |
-| PDF CJK fonts | Latin core fonts only (portable) |
-| Target allow-lists | Core still reports target limits as disabled |
-
----
-
-## 5. One-line conclusion
-
-**We moved from “sockets + a vulnerable lab” to a minimal closed loop on Uncle Wang’s milk-tea shop: draft rules → generate attacks → execute → formal Findings → PDF.** Still missing: capture, broader domain generality, and pipeline glue.
-
----
-
-## 6. How to demo with the milk-tea lab
-
-Three tracks: **A browser demo**, **B CLI closed loop (recommended for talks)**, **C optional learner path**.
-
-### 6.0 One-time setup
-
-**Needs:** Python 3.11+, Docker Desktop, Git.
-
-```powershell
-cd "PATH\TO\StateBreaker"
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
-python -m pip install -e .\plugin-template
-python -m pip install -e .\race-generator
-python -m pip install -e .\race-executor
-python -m pip install -e .\statebreaker-learner-delta
-python -m pip install -e .\statebreaker-verifier-basic
-python -m pip install -e .\statebreaker-reporter-pdf
-
-statebreaker doctor
-statebreaker plugins list
-```
-
-You should see:
-
-- `team.delta-learner`
-- `team.race-generator`
-- `team.race-executor`
-- `team.basic-verifier`
-- `team.pdf-reporter`
-
-### 6.1 Start the lab
-
-```powershell
-docker compose up --build
-```
-
-Open: <http://127.0.0.1:8080/>
-
-If port 8080 is busy:
-
-```powershell
-$env:STATEBREAKER_LAB_PORT = "18080"
-docker compose up --build
-# Browse http://127.0.0.1:18080/
-# Update base_url in examples/coupon-race/workflow.yaml accordingly
-```
-
-Health: <http://127.0.0.1:8080/healthz>
-
----
-
-### Track A: Browser-only demo (1–2 minutes)
-
-**Goal:** Prove the bug is real without the framework.
-
-| Step | Action | Expected |
-|------|--------|----------|
-| 1 | “Open a new table” | discount 0, coupon unused |
-| 2 | “Honest redeem once” | discount **50** |
-| 3 | Redeem again | **rejected**, still 50 |
-| 4 | Open a new table | reset |
-| 5 | “Double-speed attack” | two concurrent requests |
-| 6 | Observe result | discount **100**, 2 successful redemptions |
-| 7 | Timeline | two checks before the first commit |
-
-**Talking point:** intentional TOCTOU — check unused → sleep 150ms → add value & mark used. Two requests both pass the check window.
-
-Keep the lab running for Track B.
-
----
-
-### Track B: CLI closed loop (recommended)
-
-**Goal:** Show the framework path from models/rules to attack evidence, Findings, and PDF.
-
-#### B1. Validate the normal workflow
-
-```powershell
-statebreaker workflow validate .\examples\coupon-race\workflow.yaml
-```
-
-#### B2. Generate attack plans
-
-```powershell
-New-Item -ItemType Directory -Force -Path .\.statebreaker\demo | Out-Null
-
-statebreaker generate `
-  .\examples\coupon-race\workflow.yaml `
-  .\examples\coupon-race\invariants.yaml `
-  --plugin team.race-generator `
-  --output .\.statebreaker\demo\plans.json
-```
-
-`plans.json` should list ~10 plans (concurrent, burst, offsets, …).
-
-#### B3. Pick the minimal two-request race and execute
-
-```powershell
-python -c "import json; from pathlib import Path; plans=json.loads(Path('.statebreaker/demo/plans.json').read_text(encoding='utf-8')); p=next(x for x in plans if x['attack_type']=='concurrent-replay'); Path('.statebreaker/demo/one-plan.json').write_text(json.dumps(p,ensure_ascii=False,indent=2),encoding='utf-8'); print(p['id'])"
-
-statebreaker attack .\.statebreaker\demo\one-plan.json `
-  --workflow .\examples\coupon-race\workflow.yaml `
-  --plugin team.race-executor `
-  --output .\.statebreaker\demo\raw-result.json
-```
-
-**Check** `raw-result.json`:
-
-- `after_state.discount_yuan` ≈ **100**
-- `plugin_data.vulnerability_observed` often **true**
-- lab check/commit event counts often **2**
-
-#### B4. Formal verification (Findings)
-
-```powershell
-statebreaker verify .\.statebreaker\demo\raw-result.json `
-  .\examples\coupon-race\invariants.yaml `
-  --plugin team.basic-verifier `
-  --output .\.statebreaker\demo\findings.json
-```
-
-**Check:** `verdict: confirmed` for `coupon-max-delta` (observed delta 100 > 50).
-
-#### B5. Build a RunBundle and render PDF
-
-```powershell
-python -c @"
-import json
-from pathlib import Path
-from pydantic import TypeAdapter
-from statebreaker.documents import load_model, write_json
-from statebreaker.models import AttackPlan, Finding, RawAttackResult, RunBundle, Workflow
-
-root = Path('.statebreaker/demo')
-findings = TypeAdapter(list[Finding]).validate_python(
-    json.loads((root / 'findings.json').read_text(encoding='utf-8'))
-)
-bundle = RunBundle(
-    workflow=load_model(Path('examples/coupon-race/workflow.yaml'), Workflow),
-    attack_plan=load_model(root / 'one-plan.json', AttackPlan),
-    result=load_model(root / 'raw-result.json', RawAttackResult),
-    findings=findings,
-)
-write_json(root / 'run-bundle.json', bundle)
-print('wrote', root / 'run-bundle.json')
-"@
-
-statebreaker report .\.statebreaker\demo\run-bundle.json `
-  --plugin team.pdf-reporter `
-  --output-dir .\.statebreaker\demo\report
-```
-
-Open:
+The lab is one FastAPI container with a native HTML/CSS/JS UI and per-run state isolation. The
+redeem handler intentionally contains a 150 ms TOCTOU window:
 
 ```text
-.statebreaker\demo\report\statebreaker-report.pdf
+check coupon_used == false
+→ await 150 ms
+→ discount += 50
+→ coupon_used = true
 ```
 
-#### B6. Optional: batch all plans
-
-```powershell
-statebreaker-coupon-audit `
-  .\examples\coupon-race\workflow.yaml `
-  .\.statebreaker\demo\plans.json `
-  --output-dir .\.statebreaker\demo\audit
-```
-
-Inspect `summary.json` for which plans set `vulnerability_observed` (negative controls such as precondition-bypass should stay false).
-
----
-
-### Track C: Add the learner (full story)
-
-**Requires:** lab up; `workflow.yaml` `base_url` port correct.
-
-```powershell
-$env:STATEBREAKER_LEARNER_SAMPLES = "5"
-
-statebreaker learn .\examples\coupon-race\workflow.yaml `
-  --plugin team.delta-learner `
-  --output .\.statebreaker\demo\learning-result.json
-```
-
-Extract invariants:
-
-```powershell
-python -c "
-import json
-from pathlib import Path
-data=json.loads(Path('.statebreaker/demo/learning-result.json').read_text(encoding='utf-8'))
-Path('.statebreaker/demo/learned-invariants.json').write_text(
-    json.dumps(data['invariants'], ensure_ascii=False, indent=2), encoding='utf-8')
-print(len(data['invariants']), 'invariants')
-"
-```
-
-Generate from learned rules:
-
-```powershell
-statebreaker generate `
-  .\examples\coupon-race\workflow.yaml `
-  .\.statebreaker\demo\learned-invariants.json `
-  --plugin team.race-generator `
-  --output .\.statebreaker\demo\plans-from-learn.json
-```
-
-Then attack → verify → report as in Track B.
-
-**Story:** learner sees “normal +50 max”; race reaches 100; verifier returns `confirmed`.
-
----
-
-## 7. ~3-minute talk track
-
-1. **Problem:** business-logic bugs need **state evidence**, not status codes alone.  
-2. **Lab:** BUG50 TOCTOU with a 150ms window (Track A).  
-3. **Skeleton:** six plugin stages; algorithms stay out of the core.  
-4. **Progress:** learner → generator → executor → verifier → PDF.  
-5. **Loop:** concurrent attack, discount 0→100, Finding confirmed, PDF on disk (Track B).  
-6. **Limits:** no capture; race plugins are coupon-lab focused; next steps: generality + orchestration.  
-
----
-
-## 8. Teardown
-
-```powershell
-docker compose down
-```
-
-Artifacts worth keeping for screenshots:
+Sequential baseline:
 
 ```text
-.statebreaker/demo/
-  plans.json
-  one-plan.json
-  raw-result.json
-  findings.json
-  run-bundle.json
-  report/statebreaker-report.pdf
+discount_yuan: 0 → 50
+successful_redemptions: 0 → 1
 ```
 
----
+Two-request race:
 
-## 9. Related docs
+```text
+checks=2, commits=2, rejections=0
+discount_yuan: 0 → 100
+successful_redemptions: 0 → 2
+```
 
-- [Architecture](architecture.md)  
-- [Contracts](contracts.md)  
-- [Plugin development](plugin-development.md)  
-- Chinese version: [PROGRESS_REPORT_ZH.md](PROGRESS_REPORT_ZH.md)  
+The invariant permits a maximum delta of 50; the observed delta is 100, so the verifier emits a
+`CONFIRMED` Finding.
+
+## 7. Capture review outcome
+
+The initial HAR Capture PR parsed the envelope but removed Cookie/Authorization and rejected all
+request bodies, so it could not replay most authenticated POST workflows. Before merge it was
+hardened with:
+
+- replayable credentials by default and explicit `strip_credentials`;
+- JSON and `application/x-www-form-urlencoded` bodies;
+- an authenticated JSON HAR fixture;
+- dedicated Python 3.11/3.12 CI;
+- 24 passing plugin tests before merge into `main`.
+
+The stepwise CLI later added `workflow import --options` integration coverage, bringing the current
+Capture suite to 25 tests.
+
+## 8. Quality status
+
+Verified on the current development branch:
+
+- core/lab suite: 27 passed;
+- HAR Capture suite: 25 passed;
+- Ruff: passed;
+- core and Capture mypy: passed;
+- GitHub Actions: Linux 3.11/3.12, Windows 3.11/3.12, Docker lab, and Capture 3.11/3.12 all passed;
+- manual eight-stage run: baseline 0→50, race 0→100, confirmed Finding, PDF generated.
+
+## 9. Remaining work
+
+1. infer dynamic IDs, token propagation, Extractors, and dependencies from capture data;
+2. add live browser/proxy collection in addition to offline HAR import;
+3. generalize generator/executor targeting beyond coupon labels to withdrawal, invitation, token,
+   and workflow-order scenarios;
+4. implement Last-Byte Gate, HTTP/2 synchronization, minimum-concurrency search, and success rates;
+5. improve invariant learning, human confirmation, and HTML timing reports;
+6. add four to six distinct business-logic labs and cross-scenario evaluation.
+
+## 10. One-sentence report conclusion
+
+> We have advanced the original plugin skeleton into a working minimal closed loop that can import
+> or describe normal traffic, replay baseline state, generate and explicitly select race plans,
+> send real concurrent requests, confirm violations from business state, and emit a PDF; the coupon
+> lab is the first observable test target, while dynamic capture and cross-domain generality are the
+> next priorities.
+
+## 11. Related documentation
+
+- [Chinese live demo guide](DEMO_GUIDE_ZH.md)
+- [CLI reference](cli.md)
+- [Architecture](architecture.md)
+- [Data contracts](contracts.md)
+- [Plugin development](plugin-development.md)
+- [Chinese progress report](PROGRESS_REPORT_ZH.md)

@@ -43,7 +43,8 @@ statebreaker report .statebreaker/manual/run-bundle.json `
 ```
 
 每一步都会显示真实 HTTP 请求、并发时间差、响应状态、攻击前后状态和规则违反依据。
-完整报告步骤及参数见 [新版 CLI 文档](docs/cli.md)。
+现场汇报直接参考 [演示指南](docs/DEMO_GUIDE_ZH.md)；完整参数见
+[新版 CLI 文档](docs/cli.md)。
 
 StateBreaker 是一个面向业务逻辑漏洞实验的可扩展框架。它把“流量采集、正常状态学习、攻击计划生成、攻击执行、结果验证、报告生成”拆成六类独立插件，让不同组员可以并行开发，而不用互相复制数据结构、HTTP 会话代码和命令行入口。
 
@@ -105,7 +106,8 @@ StateBreaker 的数据流如下：
 
 ```text
 StateBreaker/
-├─ src/statebreaker/          # 核心模型、运行时、插件发现和 CLI
+├─ src/statebreaker/          # 核心模型、运行时、插件发现、pipeline 和 CLI
+├─ plugins/statebreaker-har-capture/ # HAR 1.2 capture 插件
 ├─ plugin-template/           # 可复制的独立插件模板
 ├─ race-generator/            # 优惠券竞态攻击计划生成插件
 ├─ race-executor/             # 优惠券竞态攻击检测执行插件
@@ -126,6 +128,7 @@ StateBreaker/
 - `src/statebreaker/models.py`：所有跨插件传递的数据；
 - `src/statebreaker/runtime.py`：HTTP 会话、变量、提取器和事件日志；
 - `src/statebreaker/plugins.py`：插件发现、加载和兼容性检查；
+- `src/statebreaker/pipeline.py`：CI/批量模式的完整编排；
 - `src/statebreaker/cli.py`：稳定命令行入口。
 
 修改公共模型会影响所有组员。除非大家已经讨论并确认新契约，否则优先在插件内部扩展自己的配置，不要随意修改核心模型。
@@ -1236,7 +1239,14 @@ statebreaker schema export schemas
 statebreaker workflow validate examples/coupon-race/workflow.yaml
 
 # 通过 Capture 插件导入
-statebreaker workflow import <source> --plugin <plugin_id> --output workflow.json
+statebreaker workflow import <source> --plugin <plugin_id> --options options.yaml --output workflow.json
+
+# 查看并顺序重放正常流程
+statebreaker workflow show workflow.yaml
+statebreaker workflow replay workflow.yaml --target http://127.0.0.1:18080
+
+# 查看业务规则
+statebreaker invariants show invariants.yaml
 
 # 学习候选规则
 statebreaker learn <workflow.yaml> --plugin <plugin_id> --output learning-result.json
@@ -1244,11 +1254,18 @@ statebreaker learn <workflow.yaml> --plugin <plugin_id> --output learning-result
 # 生成攻击计划
 statebreaker generate <workflow.yaml> <invariants.yaml> --plugin <plugin_id> --output attack-plans.json
 
+# 查看并明确选择一个计划
+statebreaker plans list attack-plans.json
+statebreaker plans select attack-plans.json --attack-type concurrent-replay --output selected-plan.json
+
 # 执行攻击计划
 statebreaker attack <plan.yaml> --workflow <workflow.yaml> --plugin <plugin_id> --output raw-attack-result.json
 
 # 验证结果
 statebreaker verify <result.json> <invariants.yaml> --plugin <plugin_id> --output findings.json
+
+# 组装报告输入
+statebreaker bundle build --workflow workflow.yaml --plan selected-plan.json --result result.json --findings findings.json --output run-bundle.json
 
 # 生成报告
 statebreaker report <bundle.json> --plugin <plugin_id> --output-dir <directory>
@@ -1269,6 +1286,8 @@ docker compose down
 
 ## 17. 进一步文档
 
+- [现场演示指南](docs/DEMO_GUIDE_ZH.md)
+- [新版 CLI 参考](docs/cli.md)
 - [架构说明](docs/architecture.md)
 - [数据契约](docs/contracts.md)
 - [插件开发说明](docs/plugin-development.md)
@@ -1281,6 +1300,7 @@ docker compose down
 - [差分 learner 插件](statebreaker-learner-delta/README.md)
 - [基础 verifier 插件](statebreaker-verifier-basic/README.md)
 - [PDF reporter 插件](statebreaker-reporter-pdf/README.md)
+- [HAR Capture 插件](plugins/statebreaker-har-capture/README.md)
 - [优惠券 Workflow 示例](examples/coupon-race/workflow.yaml)
 - [优惠券 Invariant 示例](examples/coupon-race/invariants.yaml)
 - [优惠券 AttackPlan 示例](examples/coupon-race/attack-plan.yaml)

@@ -3,6 +3,8 @@
 新版 CLI 负责把组员独立开发的插件连接起来。它本身不实现抓包算法、竞态调度算法、
 规则判断算法或报告排版算法；这些能力仍由 Entry Point 插件提供。
 
+需要现场展示时优先阅读 [现场演示指南](DEMO_GUIDE_ZH.md)；本文保留完整命令参考。
+
 ## 1. 安装与自检
 
 ```powershell
@@ -195,7 +197,8 @@ capture 插件作者确认生成的 Workflow 是否可执行。
 调用 capture 插件导入流量：
 
 ```powershell
-statebreaker workflow import traffic.har --plugin your.capture --output workflow.json
+statebreaker workflow import traffic.har --plugin your.capture `
+  --options capture-options.yaml --output workflow.json
 ```
 
 ## 5. 单阶段调试命令
