@@ -15,7 +15,13 @@ def test_doctor() -> None:
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     assert "StateBreaker core" in result.stdout
-    assert "未启用" in result.stdout
+    assert "核心不限制目标" in result.stdout
+
+
+def test_version() -> None:
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert "StateBreaker 0.1.0" in result.stdout
 
 
 def test_validate_example_workflow() -> None:
@@ -60,3 +66,29 @@ def test_schema_export(tmp_path: Path) -> None:
     workflow_schema = json.loads((output / "Workflow.schema.json").read_text(encoding="utf-8"))
     assert workflow_schema["title"] == "Workflow"
     assert (output / "AttackPlan.schema.json").exists()
+
+
+def test_pipeline_missing_plugin_has_plugin_exit_code(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "run",
+            str(ROOT / "examples/coupon-race/workflow.yaml"),
+            str(ROOT / "examples/coupon-race/invariants.yaml"),
+            "--generator",
+            "not-installed",
+            "--no-report",
+            "--output-root",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 3
+    assert "not found" in result.stderr
+
+
+def test_demo_is_a_non_interactive_command() -> None:
+    result = runner.invoke(app, ["demo", "--help"])
+    assert result.exit_code == 0
+    assert "--target" in result.stdout
+    assert "--no-report" in result.stdout

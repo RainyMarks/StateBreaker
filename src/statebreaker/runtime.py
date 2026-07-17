@@ -93,6 +93,7 @@ class EventLog:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.touch(exist_ok=True)
         self.events: list[RunEvent] = []
 
     def append(self, event: RunEvent) -> None:

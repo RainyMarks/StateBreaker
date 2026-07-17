@@ -1,46 +1,46 @@
 const STRINGS = {
   en: {
-    documentTitle: "Uncle Wang's Milk Tea · BUG50 Lab",
+    documentTitle: "Lao Wang's Milk Tea · BUG50 Lab",
     eyebrow: "STATEBREAKER LOCAL LAB / 01",
-    title: "Uncle Wang's Milk Tea",
-    subtitle: "One coupon that should work once — and two hands that don't care.",
-    ticketKicker: "TODAY ONLY · DEV PROMISE",
-    ticketCopy: "¥50 off everything (min spend ¥0)",
-    ruleLabel: "Usage rule",
-    ruleValue: "Once only (in theory)",
-    noTable: "no table yet",
-    consoleTitle: "Cart state",
-    liveBadge: "single-process lab",
-    metricDiscount: "Discount total",
-    metricSuccess: "Successful redeems",
-    metricTimes: " ×",
-    metricCoupon: "Coupon",
-    couponUnused: "unused",
-    couponUsed: "used",
-    btnReset: "Open a new table",
-    btnHonest: "Honest redeem once",
-    btnRace: "Double-speed attack",
-    statusBoot: "Wiping tables for Uncle Wang…",
-    timelineTitle: "Server event receipt",
+    title: "Lao Wang's Milk Tea",
+    subtitle: "One single-use coupon. Two hands with absolutely no manners.",
+    ticketKicker: "TODAY ONLY · PROGRAMMER PROMISE",
+    ticketCopy: "¥50 OFF · NO MINIMUM",
+    ruleLabel: "RULE",
+    ruleValue: "ONE USE ONLY (IN THEORY)",
+    noTable: "NO TABLE YET",
+    consoleTitle: "Cart State",
+    liveBadge: "SINGLE-WORKER LAB",
+    metricDiscount: "TOTAL DISCOUNT",
+    metricSuccess: "SUCCESSFUL REDEMPTIONS",
+    metricTimes: " times",
+    metricCoupon: "COUPON STATE",
+    couponUnused: "UNUSED",
+    couponUsed: "USED",
+    btnReset: "Open a Fresh Table",
+    btnHonest: "Redeem Once, Politely",
+    btnRace: "Deploy Both Hands",
+    statusBoot: "Wiping Lao Wang's table…",
+    timelineTitle: "Server Event Receipt",
     timelineHint:
-      "Real evidence is how much discount changed — not how many HTTP 200s you got.",
-    eventsEmpty: "The receipt printer is still silent.",
-    statusOpening: "Opening a new table and sweeping leftover wool…",
-    statusOpened: "New table ready. BUG50 looks very confident.",
-    statusOpenFail: "Failed to open table: ",
-    statusHonest: "Queueing an honest redeem…",
-    statusHonestOk: "Redeemed: ¥50 off. Uncle Wang is fine with this.",
-    statusHonestFail: "Redeem rejected: ",
-    statusRacing: "Both hands reach the register at once…",
+      "The evidence is the final discount—not the number of HTTP 200 responses.",
+    eventsEmpty: "The receipt printer has heard nothing yet.",
+    statusOpening: "Opening a fresh table and sweeping away the previous evidence…",
+    statusOpened: "Fresh table ready. BUG50 looks extremely confident.",
+    statusOpenFail: "Could not open table: ",
+    statusHonest: "Waiting in line and redeeming politely…",
+    statusHonestOk: "Redeemed: Lao Wang took ¥50 off.",
+    statusHonestFail: "Redemption rejected: ",
+    statusRacing: "Two hands are reaching for the register at once…",
     statusRaceBroken:
-      "State broken: one coupon redeemed twice — discount is ¥100.",
+      "State broken: one coupon redeemed twice. The discount is now ¥100.",
     statusRacePartial: "This round succeeded ",
-    statusRacePartialTail: " time(s). Open a new table and retry.",
+    statusRacePartialTail: " time(s). Open a fresh table and try again.",
     eventMessages: {
-      "run.created": "New table opened. BUG50 pretends it can only be used once.",
-      "coupon.checked": "Check passed: still looks unused right now.",
-      "coupon.committed": "Write finished: discount +¥50.",
-      "coupon.rejected": "Check failed: coupon already used. Uncle Wang caught it.",
+      "run.created": "Fresh table opened. BUG50 is pretending it can only be used once.",
+      "coupon.checked": "Check passed: the coupon appears unused at this exact moment.",
+      "coupon.committed": "Commit complete: another ¥50 discount was applied.",
+      "coupon.rejected": "Check failed: the coupon was already used. Lao Wang noticed this time.",
     },
   },
   zh: {
@@ -103,7 +103,7 @@ const ui = {
 
 let currentRunId = null;
 let busy = false;
-let lang = localStorage.getItem("statebreaker-lab-lang") || "en";
+let lang = localStorage.getItem("statebreaker-lab-lang-v2") || "en";
 let lastEvents = [];
 
 function t(key) {
@@ -138,7 +138,7 @@ function applyStaticI18n() {
 
 function setLang(next) {
   lang = next === "zh" ? "zh" : "en";
-  localStorage.setItem("statebreaker-lab-lang", lang);
+  localStorage.setItem("statebreaker-lab-lang-v2", lang);
   applyStaticI18n();
   if (currentRunId) {
     // re-render dynamic bits

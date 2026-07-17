@@ -1,5 +1,43 @@
 # StateBreaker v0.1
 
+## 新 CLI 快速开始
+
+新版 CLI 是非交互、可脚本化的入口，不依赖已经删除的旧菜单向导。启动本地靶场后，
+一条命令即可完成攻击计划生成、执行、状态验证和 PDF 报告：
+
+```powershell
+python -m pip install -e .\race-generator -e .\race-executor `
+  -e .\statebreaker-verifier-basic -e .\statebreaker-reporter-pdf
+$env:STATEBREAKER_LAB_PORT = "18080"
+docker compose up --build -d
+statebreaker demo
+```
+
+结果保存在 `.statebreaker/runs/<run_id>/`，其中包括工作流、全部候选攻击计划、实际
+执行的计划、攻击前后状态、事件时间线、Finding、RunBundle 和报告文件。
+
+对任意工作流运行完整插件流水线：
+
+```powershell
+statebreaker pipeline run examples/coupon-race/workflow.yaml `
+  examples/coupon-race/invariants.yaml `
+  --target http://127.0.0.1:18080 `
+  --generator team.race-generator `
+  --executor team.race-executor `
+  --verifier team.basic-verifier `
+  --reporter team.pdf-reporter
+```
+
+只校验或重放正常工作流：
+
+```powershell
+statebreaker workflow validate examples/coupon-race/workflow.yaml
+statebreaker workflow replay examples/coupon-race/workflow.yaml `
+  --target http://127.0.0.1:18080
+```
+
+完整参数、退出码和组员接入方式见 [新版 CLI 文档](docs/cli.md)。
+
 StateBreaker 是一个面向业务逻辑漏洞实验的可扩展框架。它把“流量采集、正常状态学习、攻击计划生成、攻击执行、结果验证、报告生成”拆成六类独立插件，让不同组员可以并行开发，而不用互相复制数据结构、HTTP 会话代码和命令行入口。
 
 当前仓库是 **v0.1 接口骨架 + 老王奶茶券竞态靶场**，不是已经完成的自动漏洞扫描器。核心已经提供：

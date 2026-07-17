@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="StateBreaker local coupon race-condition lab" />
-    <title>Uncle Wang's Milk Tea · BUG50 Lab</title>
+    <title>Lao Wang's Milk Tea · BUG50 Lab</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
@@ -13,9 +13,9 @@
       <header class="masthead reveal">
         <div>
           <p class="eyebrow" data-i18n="eyebrow">STATEBREAKER LOCAL LAB / 01</p>
-          <h1 data-i18n="title">Uncle Wang's Milk Tea</h1>
+          <h1 data-i18n="title">Lao Wang's Milk Tea</h1>
           <p class="subtitle" data-i18n="subtitle">
-            One coupon that should work once — and two hands that don't care.
+            One single-use coupon. Two hands with absolutely no manners.
           </p>
         </div>
         <div class="lang-switch" role="group" aria-label="Language">
@@ -28,12 +28,12 @@
         <section class="ticket reveal delay-2" aria-labelledby="coupon-title">
           <div class="ticket-hole left"></div>
           <div class="ticket-hole right"></div>
-          <p class="ticket-kicker" data-i18n="ticketKicker">TODAY ONLY · DEV PROMISE</p>
+          <p class="ticket-kicker" data-i18n="ticketKicker">TODAY ONLY · PROGRAMMER PROMISE</p>
           <h2 id="coupon-title">BUG<span>50</span></h2>
-          <p class="ticket-copy" data-i18n="ticketCopy">¥50 off everything (min spend ¥0)</p>
+          <p class="ticket-copy" data-i18n="ticketCopy">¥50 OFF · NO MINIMUM</p>
           <div class="rule">
-            <span data-i18n="ruleLabel">Usage rule</span>
-            <strong data-i18n="ruleValue">Once only (in theory)</strong>
+            <span data-i18n="ruleLabel">RULE</span>
+            <strong data-i18n="ruleValue">ONE USE ONLY (IN THEORY)</strong>
           </div>
           <div class="barcode" aria-hidden="true"></div>
           <p class="run-label">RUN ID</p>
@@ -44,39 +44,39 @@
           <div class="console-heading">
             <div>
               <p class="eyebrow">LIVE STATE</p>
-              <h2 id="console-title" data-i18n="consoleTitle">Cart state</h2>
+              <h2 id="console-title" data-i18n="consoleTitle">Cart State</h2>
             </div>
-            <span class="pulse"><i></i> <span data-i18n="liveBadge">single-process lab</span></span>
+            <span class="pulse"><i></i> <span data-i18n="liveBadge">SINGLE-WORKER LAB</span></span>
           </div>
 
           <div class="metrics" aria-live="polite">
             <article>
-              <span data-i18n="metricDiscount">Discount total</span>
+              <span data-i18n="metricDiscount">TOTAL DISCOUNT</span>
               <strong><small>¥</small><b id="discount">0</b></strong>
             </article>
             <article>
-              <span data-i18n="metricSuccess">Successful redeems</span>
-              <strong><b id="success-count">0</b><small data-i18n="metricTimes"> ×</small></strong>
+              <span data-i18n="metricSuccess">SUCCESSFUL REDEMPTIONS</span>
+              <strong><b id="success-count">0</b><small data-i18n="metricTimes"> times</small></strong>
             </article>
             <article>
-              <span data-i18n="metricCoupon">Coupon</span>
-              <strong class="state-badge" id="coupon-state" data-i18n="couponUnused">unused</strong>
+              <span data-i18n="metricCoupon">COUPON STATE</span>
+              <strong class="state-badge" id="coupon-state" data-i18n="couponUnused">UNUSED</strong>
             </article>
           </div>
 
           <div class="actions">
             <button class="button reset" id="reset-button" type="button">
-              <span>01</span> <span data-i18n="btnReset">Open a new table</span>
+              <span>01</span> <span data-i18n="btnReset">Open a Fresh Table</span>
             </button>
             <button class="button honest" id="single-button" type="button">
-              <span>02</span> <span data-i18n="btnHonest">Honest redeem once</span>
+              <span>02</span> <span data-i18n="btnHonest">Redeem Once, Politely</span>
             </button>
             <button class="button chaos" id="race-button" type="button">
-              <span>03</span> <span data-i18n="btnRace">Double-speed attack</span>
+              <span>03</span> <span data-i18n="btnRace">Deploy Both Hands</span>
             </button>
           </div>
           <p class="status-line" id="status-line" role="status" data-i18n="statusBoot">
-            Wiping tables for Uncle Wang…
+            Wiping Lao Wang's table…
           </p>
         </section>
       </div>
@@ -85,10 +85,10 @@
         <div class="timeline-header">
           <div>
             <p class="eyebrow">APPLICATION STATE EVIDENCE</p>
-            <h2 id="timeline-title" data-i18n="timelineTitle">Server event receipt</h2>
+            <h2 id="timeline-title" data-i18n="timelineTitle">Server Event Receipt</h2>
           </div>
           <p data-i18n="timelineHint">
-            Real evidence is how much discount changed — not how many HTTP 200s you got.
+            The evidence is the final discount—not the number of HTTP 200 responses.
           </p>
         </div>
         <ol id="events" class="events" aria-live="polite"></ol>

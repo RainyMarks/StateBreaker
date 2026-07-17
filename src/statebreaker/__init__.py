@@ -15,6 +15,7 @@ from statebreaker.models import (
     StateProfile,
     Workflow,
 )
+from statebreaker.pipeline import PipelineOutcome, PipelinePlugins, run_pipeline
 from statebreaker.runtime import ExecutionRuntime
 
 __all__ = [
@@ -26,12 +27,15 @@ __all__ = [
     "Invariant",
     "LearningResult",
     "PluginManifest",
+    "PipelineOutcome",
+    "PipelinePlugins",
     "RawAttackResult",
     "RequestStep",
     "RunBundle",
     "RunEvent",
     "StateProfile",
     "Workflow",
+    "run_pipeline",
 ]
 
 __version__ = "0.1.0"
