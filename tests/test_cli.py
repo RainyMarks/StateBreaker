@@ -80,13 +80,44 @@ def test_pipeline_missing_plugin_has_plugin_exit_code(tmp_path: Path) -> None:
             str(ROOT / "examples/coupon-race/invariants.yaml"),
             "--generator",
             "not-installed",
-            "--no-report",
+            "--executor",
+            "not-installed",
+            "--verifier",
+            "not-installed",
+            "--attack-type",
+            "concurrent-replay",
             "--output-root",
             str(tmp_path),
         ],
     )
     assert result.exit_code == 3
     assert "not found" in result.stderr
+
+
+def test_pipeline_requires_explicit_plugins_and_plan_selector() -> None:
+    help_result = runner.invoke(app, ["pipeline", "run", "--help"])
+    assert help_result.exit_code == 0
+    for option in ("--generator", "--executor", "--verifier"):
+        assert option in help_result.stdout
+    assert "team.race" not in help_result.stdout
+
+    result = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "run",
+            str(ROOT / "examples/coupon-race/workflow.yaml"),
+            str(ROOT / "examples/coupon-race/invariants.yaml"),
+            "--generator",
+            "any.generator",
+            "--executor",
+            "any.executor",
+            "--verifier",
+            "any.verifier",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "--plan-id" in result.stderr
 
 
 def test_cli_exposes_stepwise_race_workflow() -> None:

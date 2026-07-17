@@ -109,7 +109,7 @@ async def run_pipeline(
     registry: PluginRegistry | None = None,
     output_root: Path = Path(".statebreaker/runs"),
     plan_id: str | None = None,
-    attack_type: str | None = "concurrent-replay",
+    attack_type: str | None = None,
 ) -> PipelineOutcome:
     """Generate, execute, verify, and optionally report one attack plan."""
 

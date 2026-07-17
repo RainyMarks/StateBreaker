@@ -69,12 +69,6 @@ EXIT_VALIDATION = 2
 EXIT_PLUGIN = 3
 EXIT_RUNTIME = 4
 
-DEFAULT_GENERATOR = "team.race-generator"
-DEFAULT_EXECUTOR = "team.race-executor"
-DEFAULT_VERIFIER = "team.basic-verifier"
-DEFAULT_REPORTER = "team.pdf-reporter"
-
-
 @app.callback()
 def root(
     version: Annotated[
@@ -619,12 +613,11 @@ def replay_workflow(
 def run_pipeline_command(
     workflow_path: Path,
     invariants_path: Path,
-    generator: Annotated[str, typer.Option("--generator")] = DEFAULT_GENERATOR,
-    executor: Annotated[str, typer.Option("--executor")] = DEFAULT_EXECUTOR,
-    verifier: Annotated[str, typer.Option("--verifier")] = DEFAULT_VERIFIER,
-    reporter: Annotated[str | None, typer.Option("--reporter")] = DEFAULT_REPORTER,
-    no_report: Annotated[bool, typer.Option("--no-report")] = False,
-    attack_type: Annotated[str | None, typer.Option("--attack-type")] = "concurrent-replay",
+    generator: Annotated[str, typer.Option("--generator")],
+    executor: Annotated[str, typer.Option("--executor")],
+    verifier: Annotated[str, typer.Option("--verifier")],
+    reporter: Annotated[str | None, typer.Option("--reporter")] = None,
+    attack_type: Annotated[str | None, typer.Option("--attack-type")] = None,
     plan_id: Annotated[str | None, typer.Option("--plan-id")] = None,
     target: Annotated[str | None, typer.Option("--target", help="临时覆盖 base_url。")]
     = None,
@@ -636,6 +629,9 @@ def run_pipeline_command(
 ) -> None:
     """用独立插件完成 Generate → Execute → Verify → Report。"""
 
+    if plan_id is None and attack_type is None:
+        _abort("必须使用 --plan-id 或 --attack-type 明确选择攻击计划", EXIT_VALIDATION)
+
     _invoke_pipeline(
         workflow_path,
         invariants_path,
@@ -643,7 +639,7 @@ def run_pipeline_command(
         generator=generator,
         executor=executor,
         verifier=verifier,
-        reporter=None if no_report else reporter,
+        reporter=reporter,
         output_root=output_root,
         plan_id=plan_id,
         attack_type=attack_type,

@@ -136,8 +136,9 @@ statebreaker report .statebreaker/manual/run-bundle.json `
   --output-dir .statebreaker/manual/report
 ```
 
-这套步骤不依赖奶茶券的硬编码。换系统时替换 Workflow、Invariant、目标地址和插件 ID
-即可复用相同过程。
+这套命令和数据接口是通用骨架；上面的插件则是 v0.1 针对奶茶券竞态完成的第一套参考
+实现。更换系统时不需要修改核心 CLI，但需要提供新的 Workflow、Invariant、目标地址，
+并选择能够理解该场景的插件。当前不能宣称这些参考插件已经覆盖所有业务逻辑漏洞。
 
 ## 3. 自动化流水线（CI 使用）
 
@@ -175,7 +176,9 @@ statebreaker pipeline run examples/coupon-race/workflow.yaml `
 `--attack-type`，再按计划 ID 排序并选择第一个。这样 CI、老师演示和组员本地运行得到
 相同的选择逻辑。
 
-使用 `--no-report` 可以只运行到验证阶段。`--output-root` 指定所有 run 目录的父目录。
+省略 `--reporter` 即可只运行到验证阶段。核心没有默认绑定奶茶券插件或
+`concurrent-replay`：调用者必须明确提供 generator、executor、verifier，并用
+`--plan-id` 或 `--attack-type` 选择计划。`--output-root` 只指定本次组合运行的证据目录。
 
 ## 4. 工作流操作参考
 
@@ -215,9 +218,24 @@ statebreaker report bundle.json --plugin your.reporter --output-dir report
 
 这些命令的输入和输出均按照 `src/statebreaker/models.py` 中的 Pydantic 契约验证。
 
-## 6. 一次运行会保存什么
+## 6. 通用阶段产物与可选运行目录
 
-完整流水线写入 `.statebreaker/runs/<run_id>/`：
+StateBreaker 并不要求所有模块必须组成一次固定的“完整流水线”。每个阶段都可以独立运行，
+并通过 `-o/--output` 把标准模型写到用户指定的位置：
+
+| 阶段 | 标准输出 |
+|---|---|
+| Capture | `Workflow` |
+| Learn | `LearningResult`（含 `StateProfile` 和 `Invariant[]`） |
+| Generate | `AttackPlan[]` |
+| Select | `AttackPlan` |
+| Execute | `RawAttackResult`，以及真实请求产生的 `events.jsonl` |
+| Verify | `Finding[]` |
+| Bundle | `RunBundle` |
+| Report | `ReportArtifacts` |
+
+只有使用可选的 `pipeline run` 组合多个插件时，核心才会在
+`.statebreaker/runs/<run_id>/`（或 `--output-root` 指定的位置）集中保存该次实验的证据：
 
 ```text
 workflow.json
@@ -235,7 +253,12 @@ report/
 ```
 
 `summary.json` 适合脚本和 CI 读取；`run-bundle.json` 是 reporter 的标准输入；
-`events.jsonl` 用于分析请求时序。
+`events.jsonl` 用于分析请求时序。这个目录是通用运行时的归档格式，不包含 `BUG50`、
+`redeem` 或 `discount_yuan` 等奶茶券专用逻辑。
+
+本仓库当前放入该契约的具体内容仍然是奶茶券实验。也就是说：**骨架可替换，v0.1 的首套
+算法实现针对奶茶券竞态**。以后增加提款、邀请码或 Token 场景时，新插件继续读写同一组
+模型，而不需要修改 `src/statebreaker`。
 
 ## 7. 组员如何接入自己的插件
 
@@ -259,10 +282,14 @@ statebreaker plugins list
 statebreaker attack plan.yaml --workflow workflow.yaml --plugin my.executor
 ```
 
-也可以直接接入完整流水线：
+也可以接入可选的组合运行：
 
 ```powershell
-statebreaker pipeline run workflow.yaml invariants.yaml --executor my.executor
+statebreaker pipeline run workflow.yaml invariants.yaml `
+  --generator my.generator `
+  --executor my.executor `
+  --verifier my.verifier `
+  --attack-type my-attack-type
 ```
 
 因此，不同组员可以开发不同阶段，也可以各自实现同一阶段的不同算法。CLI 只按插件 ID

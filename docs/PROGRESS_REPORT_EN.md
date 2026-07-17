@@ -10,12 +10,18 @@
 StateBreaker is an extensible framework for business-state vulnerabilities such as concurrent
 coupon reuse, double spending, one-time-token replay, cross-user claims, and workflow skipping.
 
+The core CLI and data contracts are scenario-independent. The Lao Wang coupon race is the first
+concrete configuration and reference implementation loaded into that framework. In v0.1, the
+interfaces are reusable, while the shipped attack algorithms are still intentionally limited to
+the milk-tea coupon experiment.
+
 It is no longer an empty interface skeleton, but it is not yet a general-purpose scanner. The
 accurate description is:
 
-> A working minimal system for normal-flow replay, candidate invariants, attack-plan generation,
-> real concurrent execution, state-based verification, and PDF reporting, plus a first HAR
-> importer and a deterministic local race-condition lab.
+> A reusable plugin skeleton with a working minimal chain for normal-flow replay, candidate
+> invariants, attack-plan generation, real concurrent execution, state-based verification, and PDF
+> reporting. The first fully connected implementation is a HAR importer plus the deterministic
+> local milk-tea coupon race lab; it is not yet evidence of cross-scenario algorithm coverage.
 
 ## 2. Repository contents
 
