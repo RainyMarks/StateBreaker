@@ -46,3 +46,21 @@ jobs:
       - name: Stop lab
         if: always()
         run: docker compose -f labs/coupon-race/compose.yaml down --volumes
+
+  har-capture-plugin:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install -e ".[dev]" -e ./plugins/statebreaker-har-capture
+      - run: python -m pytest plugins/statebreaker-har-capture/tests
+      - run: python -m ruff check plugins/statebreaker-har-capture
+      - run: python -m mypy plugins/statebreaker-har-capture/src/statebreaker_har_capture
+      - run: statebreaker plugins list --group statebreaker.capture
