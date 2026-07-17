@@ -13,6 +13,7 @@ dependencies = [
   "jsonpath-ng>=1.6,<2",
   "pydantic>=2.8,<3",
   "PyYAML>=6,<7",
+  "rich>=13,<15",
   "typer>=0.12,<1",
 ]
 
