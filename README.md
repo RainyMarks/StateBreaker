@@ -6,6 +6,14 @@
 本次课程演示把“老王奶茶券竞态”作为装入这套骨架的第一套场景配置和参考插件；终端中
 出现的优惠券字段来自示例 Workflow 和插件输出，不是核心 CLI 的固定字段。
 
+课堂上推荐直接启动逐阶段交互实验台：
+
+```powershell
+statebreaker interactive
+```
+
+它会显示通用阶段菜单，但当前默认加载奶茶券竞态参考场景；不会自动替你执行完整攻击。
+
 ```powershell
 python -m pip install -e .\race-generator -e .\race-executor `
   -e .\statebreaker-verifier-basic -e .\statebreaker-reporter-pdf `

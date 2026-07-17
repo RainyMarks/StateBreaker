@@ -128,6 +128,15 @@ def test_cli_exposes_stepwise_race_workflow() -> None:
     assert "demo" not in result.stdout
 
 
+def test_interactive_workbench_exposes_generic_stages_and_can_exit() -> None:
+    result = runner.invoke(app, ["interactive"], input="0\n")
+    assert result.exit_code == 0
+    assert "Capture → Learn → Generate → Execute → Verify → Report" in result.stdout
+    assert "Lao Wang Milk Tea / Coupon Race" in result.stdout
+    assert "[5] Execute" in result.stdout
+    assert "实验已保留" in result.stdout
+
+
 def test_plan_list_and_select_are_separate_steps(tmp_path: Path) -> None:
     plan = load_model(ROOT / "examples/coupon-race/attack-plan.yaml", AttackPlan)
     plans_path = tmp_path / "plans.json"

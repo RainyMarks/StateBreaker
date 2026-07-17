@@ -6,6 +6,7 @@ import asyncio
 import json
 import platform
 import sys
+import uuid
 from collections import Counter
 from pathlib import Path
 from typing import Annotated, Any
@@ -83,6 +84,28 @@ def root(
 def _abort(message: str, code: int) -> None:
     typer.echo(f"错误：{message}", err=True)
     raise typer.Exit(code=code)
+
+
+def _interactive_header() -> None:
+    typer.echo("\nStateBreaker Interactive Workbench")
+    typer.echo("=" * 38)
+    typer.echo("Capture → Learn → Generate → Execute → Verify → Report")
+    typer.echo("通用核心负责契约、插件、HTTP 运行时和证据；场景由外部配置与插件提供。")
+
+
+def _interactive_status(output_dir: Path) -> None:
+    artifacts = (
+        ("AttackPlan[]", output_dir / "attack-plans.json"),
+        ("Selected AttackPlan", output_dir / "selected-plan.json"),
+        ("RawAttackResult", output_dir / "raw-attack-result.json"),
+        ("Finding[]", output_dir / "findings.json"),
+        ("RunBundle", output_dir / "run-bundle.json"),
+        ("Report", output_dir / "report" / "artifacts.json"),
+    )
+    typer.echo("\n当前标准产物：")
+    for label, path in artifacts:
+        marker = "READY" if path.exists() else "----"
+        typer.echo(f"  [{marker}] {label:<20} {path}")
 
 
 def _run(awaitable: Any) -> Any:
@@ -418,6 +441,123 @@ def _invoke_pipeline(
         _abort_plugin_contract(exc)
     except (StateBreakerError, OSError) as exc:
         _abort(str(exc), EXIT_RUNTIME)
+
+
+@app.command("interactive")
+def interactive_workbench(
+    preset: Annotated[
+        str, typer.Option("--preset", help="参考场景名称，或 custom。")
+    ] = "coupon-race",
+    target: Annotated[str | None, typer.Option("--target")] = None,
+) -> None:
+    """逐步选择并观察各插件阶段的交互式实验台。"""
+
+    _interactive_header()
+    if preset == "coupon-race":
+        workflow_path = Path("examples/coupon-race/workflow.yaml")
+        invariants_path = Path("examples/coupon-race/invariants.yaml")
+        target = target or "http://127.0.0.1:18080"
+        generator_id = "team.race-generator"
+        executor_id = "team.race-executor"
+        verifier_id = "team.basic-verifier"
+        reporter_id: str | None = "team.pdf-reporter"
+        attack_type = "concurrent-replay"
+        typer.echo("已加载参考场景：Lao Wang Milk Tea / Coupon Race")
+        typer.echo("注意：这是装入通用骨架的当前参考实现，不是核心内置字段。")
+    elif preset == "custom":
+        workflow_path = Path(typer.prompt("Workflow 文件"))
+        invariants_path = Path(typer.prompt("Invariant 文件"))
+        target = typer.prompt("目标 base URL", default=target or "") or None
+        generator_id = typer.prompt("Generator plugin_id")
+        executor_id = typer.prompt("Executor plugin_id")
+        verifier_id = typer.prompt("Verifier plugin_id")
+        reporter_value = typer.prompt("Reporter plugin_id（留空则不生成报告）", default="")
+        reporter_id = reporter_value or None
+        attack_type = typer.prompt("Attack type")
+    else:
+        _abort(f"未知 preset：{preset!r}；可用值为 coupon-race 或 custom", EXIT_VALIDATION)
+
+    if not workflow_path.exists() or not invariants_path.exists():
+        _abort("找不到场景文件，请从 StateBreaker 仓库根目录运行", EXIT_VALIDATION)
+
+    output_dir = Path(".statebreaker/interactive") / uuid.uuid4().hex[:12]
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plans_path = output_dir / "attack-plans.json"
+    selected_path = output_dir / "selected-plan.json"
+    result_path = output_dir / "raw-attack-result.json"
+    findings_path = output_dir / "findings.json"
+    bundle_path = output_dir / "run-bundle.json"
+
+    typer.echo(f"目标：{target or '(from Workflow)'}")
+    typer.echo(f"实验目录：{output_dir.resolve()}")
+
+    menu = """
+[1] Inspect   查看 Workflow 与业务规则（不发请求）
+[2] Replay    顺序重放正常业务流程
+[3] Generate  调用 Generator 生成候选攻击计划
+[4] Select    交互选择一份 AttackPlan
+[5] Execute   真实执行所选计划并显示时间线与状态差分
+[6] Verify    根据业务状态证据验证结果
+[7] Report    组装 RunBundle 并生成报告
+[8] Status    查看当前标准产物
+[0] Exit      退出实验台
+"""
+    while True:
+        typer.echo(menu)
+        choice = typer.prompt("请选择下一步", default="8").strip()
+        if choice == "0":
+            typer.echo(f"实验已保留：{output_dir.resolve()}")
+            return
+        if choice == "1":
+            show_workflow(workflow_path, target)
+            show_invariant_file(invariants_path)
+        elif choice == "2":
+            replay_workflow(workflow_path, target, output_dir / "replays")
+        elif choice == "3":
+            typer.echo(f"调用插件：{generator_id}")
+            generate(workflow_path, invariants_path, generator_id, plans_path)
+        elif choice == "4":
+            if not plans_path.exists():
+                typer.echo("请先执行 [3] Generate。")
+                continue
+            list_attack_plans(plans_path)
+            selected_type = typer.prompt("选择 attack_type", default=attack_type)
+            select_plan_command(plans_path, selected_path, None, selected_type)
+        elif choice == "5":
+            if not selected_path.exists():
+                typer.echo("请先执行 [4] Select。")
+                continue
+            if not typer.confirm("即将向当前目标发送真实请求，继续？", default=False):
+                continue
+            typer.echo(f"调用插件：{executor_id}")
+            attack(selected_path, workflow_path, executor_id, target, result_path, True)
+        elif choice == "6":
+            if not result_path.exists():
+                typer.echo("请先执行 [5] Execute。")
+                continue
+            typer.echo(f"调用插件：{verifier_id}")
+            verify(result_path, invariants_path, verifier_id, findings_path)
+        elif choice == "7":
+            if not selected_path.exists() or not result_path.exists() or not findings_path.exists():
+                typer.echo("Report 需要 Selected AttackPlan、RawAttackResult 和 Finding[]。")
+                continue
+            build_bundle(
+                workflow_path,
+                selected_path,
+                result_path,
+                findings_path,
+                target,
+                bundle_path,
+            )
+            if reporter_id is None:
+                typer.echo("未选择 Reporter；RunBundle 已生成。")
+            else:
+                typer.echo(f"调用插件：{reporter_id}")
+                report(bundle_path, reporter_id, output_dir / "report")
+        elif choice == "8":
+            _interactive_status(output_dir)
+        else:
+            typer.echo("请输入 0—8。")
 
 
 @app.command()
