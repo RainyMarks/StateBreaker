@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from click import unstyle
 from typer.testing import CliRunner
 
 from statebreaker.cli import app
@@ -97,9 +98,10 @@ def test_pipeline_missing_plugin_has_plugin_exit_code(tmp_path: Path) -> None:
 def test_pipeline_requires_explicit_plugins_and_plan_selector() -> None:
     help_result = runner.invoke(app, ["pipeline", "run", "--help"])
     assert help_result.exit_code == 0
+    plain_help = unstyle(help_result.stdout)
     for option in ("--generator", "--executor", "--verifier"):
-        assert option in help_result.stdout
-    assert "team.race" not in help_result.stdout
+        assert option in plain_help
+    assert "team.race" not in plain_help
 
     result = runner.invoke(
         app,
