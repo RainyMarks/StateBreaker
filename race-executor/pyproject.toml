@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "statebreaker-race-executor"
+version = "0.1.0"
+description = "Bounded coupon race-condition executor for StateBreaker"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["statebreaker>=0.1,<0.2"]
+
+[project.entry-points."statebreaker.executor"]
+race-executor = "statebreaker_race_executor.plugin:RaceAttackExecutor"
+
+[project.scripts]
+statebreaker-coupon-audit = "statebreaker_race_executor.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

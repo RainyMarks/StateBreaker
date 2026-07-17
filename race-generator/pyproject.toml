@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "statebreaker-race-generator"
+version = "0.1.0"
+description = "Deterministic race-condition attack-plan generator for StateBreaker"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["statebreaker>=0.1,<0.2"]
+
+[project.entry-points."statebreaker.generator"]
+race-generator = "statebreaker_race_generator.plugin:RaceAttackGenerator"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

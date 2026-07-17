@@ -61,6 +61,9 @@ StateBreaker 的数据流如下：
 StateBreaker/
 ├─ src/statebreaker/          # 核心模型、运行时、插件发现和 CLI
 ├─ plugin-template/           # 可复制的独立插件模板
+├─ race-generator/            # 优惠券竞态攻击计划生成插件
+├─ race-executor/             # 优惠券竞态攻击检测执行插件
+├─ statebreaker-learner-delta/ # 多轮正常状态差分 learner 插件
 ├─ labs/coupon-race/          # “老王奶茶券”Docker 竞态靶场
 ├─ examples/coupon-race/      # 示例 Workflow、Invariant、AttackPlan
 ├─ docs/                      # 架构、契约和插件说明
@@ -1223,6 +1226,9 @@ docker compose down
 - [插件开发说明](docs/plugin-development.md)
 - [贡献指南](CONTRIBUTING.md)
 - [模板插件说明](plugin-template/README.md)
+- [竞态攻击计划生成插件](race-generator/README.md)
+- [竞态攻击检测执行插件](race-executor/README.md)
+- [差分 learner 插件](statebreaker-learner-delta/README.md)
 - [优惠券 Workflow 示例](examples/coupon-race/workflow.yaml)
 - [优惠券 Invariant 示例](examples/coupon-race/invariants.yaml)
 - [优惠券 AttackPlan 示例](examples/coupon-race/attack-plan.yaml)

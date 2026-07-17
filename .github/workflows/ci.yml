@@ -23,6 +23,12 @@ jobs:
       - run: python -m pytest
       - run: python -m mypy
       - run: python -m pip install -e ./plugin-template
+      - run: python -m pip install -e ./race-generator
+      - run: python -m pip install -e ./race-executor
+      - run: python -m pip install -e ./statebreaker-learner-delta
+      - run: python -m pytest race-generator/tests
+      - run: python -m pytest race-executor/tests
+      - run: python -m pytest statebreaker-learner-delta/tests
       - run: statebreaker plugins list
 
   docker-lab:

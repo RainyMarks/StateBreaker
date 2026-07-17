@@ -61,6 +61,13 @@ def _run(awaitable: Any) -> Any:
     return asyncio.run(awaitable)
 
 
+def _abort_plugin_contract(exc: BaseException, plugin_id: str | None = None) -> None:
+    """Map unexpected plugin contract failures to the stable plugin exit code."""
+
+    prefix = f"plugin {plugin_id!r} failed: " if plugin_id else ""
+    _abort(f"{prefix}{exc}", EXIT_PLUGIN)
+
+
 def _validate_plugin_output(value: Any, annotation: Any, plugin_id: str) -> Any:
     try:
         return TypeAdapter(annotation).validate_python(value)
@@ -170,6 +177,8 @@ def import_workflow(
         _write_output(output, workflow)
     except PluginError as exc:
         _abort(str(exc), EXIT_PLUGIN)
+    except (TypeError, ValueError) as exc:
+        _abort_plugin_contract(exc, plugin_id)
     except (StateBreakerError, OSError) as exc:
         _abort(str(exc), EXIT_RUNTIME)
 
@@ -196,6 +205,8 @@ def learn(
         _abort(str(exc), EXIT_VALIDATION)
     except PluginError as exc:
         _abort(str(exc), EXIT_PLUGIN)
+    except (TypeError, ValueError) as exc:
+        _abort_plugin_contract(exc, plugin_id)
     except (StateBreakerError, OSError) as exc:
         _abort(str(exc), EXIT_RUNTIME)
 
@@ -220,6 +231,8 @@ def generate(
         _abort(str(exc), EXIT_VALIDATION)
     except PluginError as exc:
         _abort(str(exc), EXIT_PLUGIN)
+    except (TypeError, ValueError) as exc:
+        _abort_plugin_contract(exc, plugin_id)
     except (StateBreakerError, OSError) as exc:
         _abort(str(exc), EXIT_RUNTIME)
 
@@ -257,6 +270,8 @@ def attack(
         _abort(str(exc), EXIT_VALIDATION)
     except PluginError as exc:
         _abort(str(exc), EXIT_PLUGIN)
+    except (TypeError, ValueError) as exc:
+        _abort_plugin_contract(exc, plugin_id)
     except (StateBreakerError, OSError) as exc:
         _abort(str(exc), EXIT_RUNTIME)
 
@@ -282,6 +297,8 @@ def verify(
         _abort(str(exc), EXIT_VALIDATION)
     except PluginError as exc:
         _abort(str(exc), EXIT_PLUGIN)
+    except (TypeError, ValueError) as exc:
+        _abort_plugin_contract(exc, plugin_id)
     except (StateBreakerError, OSError) as exc:
         _abort(str(exc), EXIT_RUNTIME)
 
@@ -305,6 +322,8 @@ def report(
         _abort(str(exc), EXIT_VALIDATION)
     except PluginError as exc:
         _abort(str(exc), EXIT_PLUGIN)
+    except (TypeError, ValueError) as exc:
+        _abort_plugin_contract(exc, plugin_id)
     except (StateBreakerError, OSError) as exc:
         _abort(str(exc), EXIT_RUNTIME)
 
