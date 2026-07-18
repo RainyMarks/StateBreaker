@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from copy import deepcopy
 from pathlib import Path
 
 import pytest
 from statebreaker.models import Workflow
 
+from statebreaker_har_capture import normalizer
 from statebreaker_har_capture.errors import HarCaptureError
 from statebreaker_har_capture.har_parser import parse_har
 from statebreaker_har_capture.normalizer import normalize_har
@@ -44,6 +47,78 @@ def test_normalization_is_deterministic_and_non_mutating() -> None:
     assert first == second
     assert document == original
     assert first["steps"][0]["id"].startswith("step-0000-get-api-runs-")
+
+
+def test_templated_path_step_id_uses_semantic_slug_and_canonical_hash() -> None:
+    path = "/api/runs/${run_id}/state"
+    digest = hashlib.sha256(f"1\0GET\0{path}".encode()).hexdigest()[:8]
+
+    step_id = normalizer._step_id(1, "GET", path)
+
+    assert step_id == f"step-0001-get-api-runs-run-id-state-{digest}"
+    assert re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", step_id)
+    assert all(character not in step_id for character in "${}")
+    assert normalizer._step_id(2, "GET", path) != step_id
+
+    literal_id = normalizer._step_id(1, "GET", "/api/runs/run-id/state")
+    assert "-api-runs-run-id-state-" in literal_id
+    assert literal_id != step_id
+
+
+def test_step_id_stabilization_atomically_remaps_dependencies() -> None:
+    steps = [
+        {
+            "id": "old-create",
+            "request": {"method": "POST", "path": "/api/runs"},
+            "depends_on": [],
+        },
+        {
+            "id": "old-probe-with-recorded-value",
+            "request": {
+                "method": "GET",
+                "path": "/api/runs/${run_id}/state",
+            },
+            "depends_on": ["old-create", "old-create"],
+        },
+    ]
+    original = deepcopy(steps)
+
+    stabilized, step_by_entry = normalizer._stabilize_step_ids(steps, [0, 7])
+
+    expected_ids = [
+        normalizer._step_id(0, "POST", "/api/runs"),
+        normalizer._step_id(7, "GET", "/api/runs/${run_id}/state"),
+    ]
+    assert steps == original
+    assert [step["id"] for step in stabilized] == expected_ids
+    assert stabilized[1]["depends_on"] == [expected_ids[0]]
+    assert step_by_entry == {0: expected_ids[0], 7: expected_ids[1]}
+
+
+def test_step_id_stabilization_rejects_unknown_dependency_safely() -> None:
+    unknown_id = "TEST-RECORDED-ID-DO-NOT-LEAK"
+    steps = [
+        {
+            "id": "old-create",
+            "request": {"method": "POST", "path": "/api/runs"},
+            "depends_on": [],
+        },
+        {
+            "id": "old-probe",
+            "request": {
+                "method": "GET",
+                "path": "/api/runs/${run_id}/state",
+            },
+            "depends_on": [unknown_id],
+        },
+    ]
+    original = deepcopy(steps)
+
+    with pytest.raises(HarCaptureError, match="contains an unknown step ID") as error:
+        normalizer._stabilize_step_ids(steps, [0, 1])
+
+    assert steps == original
+    assert unknown_id not in str(error.value)
 
 
 def test_credentials_are_preserved_for_replay_and_headers_are_lowercase() -> None:

@@ -65,8 +65,27 @@ body string/integer leaves, and form values or list elements. Headers, Authoriza
 host/scheme, response headers, dictionary keys, encoded path segments, and composite strings are
 never changed.
 
+After response inference, step IDs are regenerated from each request's templated canonical path.
+Successfully inferred dynamic path values therefore do not remain in step IDs, dependencies, or
+state-probe references. The deterministic hash also uses the complete templated path, while the
+human-readable slug renders a template such as `${run_id}` as `run-id`.
+
+Dynamic values that cannot be inferred reliably remain literal and may still appear in requests or
+step metadata. The plugin does not provide general anonymization for unknown identifiers.
+
 This feature does not infer setup roles, authentication variables, CSRF flows, sessions, origins,
 or generic dependencies, and it does not prove Runtime replay.
+
+## Local coupon-race replay acceptance
+
+The synthetic `coupon-race-normal.har` fixture is verified to produce a Workflow that replays the
+normal create, state, redeem, and state flow against the repository's coupon-race FastAPI app. The
+integration test uses `httpx.ASGITransport`, so every request stays in process and no external
+network or listening port is used.
+
+This acceptance covers a single origin, one session, and a JSON API. The create step remains an
+`action`; capture does not infer a `setup` role. Generic authentication and CSRF inference remain
+unsupported, and this focused test does not imply that arbitrary HAR recordings are replayable.
 
 ## Options
 

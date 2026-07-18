@@ -6,8 +6,11 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
+from copy import deepcopy
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlsplit
+
+from statebreaker.models import IDENTIFIER_PATTERN
 
 from statebreaker_har_capture.errors import HarCaptureError
 from statebreaker_har_capture.inference import (
@@ -209,6 +212,74 @@ def _step_id(index: int, method: str, path: str) -> str:
     return f"step-{index:04d}-{method.lower()}-{slug}-{digest}"
 
 
+def _stabilization_error(reason: str) -> HarCaptureError:
+    return HarCaptureError(f"HAR step ID stabilization invariant error: {reason}")
+
+
+def _stabilize_step_ids(
+    steps: list[dict[str, Any]], original_entry_indices: list[int]
+) -> tuple[list[dict[str, Any]], dict[int, str]]:
+    if len(steps) != len(original_entry_indices):
+        raise _stabilization_error("step and original entry index counts differ")
+    if len(set(original_entry_indices)) != len(original_entry_indices):
+        raise _stabilization_error("original entry indices must be unique")
+
+    old_ids: list[str] = []
+    new_ids: list[str] = []
+    for step, entry_index in zip(steps, original_entry_indices, strict=True):
+        old_id = step.get("id")
+        request = step.get("request")
+        if not isinstance(old_id, str):
+            raise _stabilization_error("step IDs must be strings")
+        if not isinstance(request, Mapping):
+            raise _stabilization_error("step requests must be objects")
+        method = request.get("method")
+        path = request.get("path")
+        if not isinstance(method, str) or not isinstance(path, str):
+            raise _stabilization_error("step methods and paths must be strings")
+
+        old_ids.append(old_id)
+        new_ids.append(_step_id(entry_index, method, path))
+
+    if len(set(old_ids)) != len(old_ids):
+        raise _stabilization_error("old step IDs must be unique")
+    if len(set(new_ids)) != len(new_ids):
+        raise _stabilization_error("new step IDs must be unique")
+    if any(re.fullmatch(IDENTIFIER_PATTERN, step_id) is None for step_id in new_ids):
+        raise _stabilization_error("new step IDs must satisfy the core identifier rule")
+
+    id_mapping = dict(zip(old_ids, new_ids, strict=True))
+    old_id_set = set(old_ids)
+    remapped_dependencies: list[list[str]] = []
+    for position, step in enumerate(steps):
+        dependencies = step.get("depends_on")
+        if not isinstance(dependencies, list):
+            raise _stabilization_error("depends_on must be a list")
+
+        remapped: list[str] = []
+        seen: set[str] = set()
+        for dependency in dependencies:
+            if not isinstance(dependency, str) or dependency not in old_id_set:
+                raise _stabilization_error("depends_on contains an unknown step ID")
+            new_dependency = id_mapping[dependency]
+            if new_dependency == new_ids[position]:
+                raise _stabilization_error("steps must not depend on themselves")
+            if new_dependency not in seen:
+                seen.add(new_dependency)
+                remapped.append(new_dependency)
+        remapped_dependencies.append(remapped)
+
+    stabilized_steps = deepcopy(steps)
+    for step, new_id, dependencies in zip(
+        stabilized_steps, new_ids, remapped_dependencies, strict=True
+    ):
+        step["id"] = new_id
+        step["depends_on"] = dependencies
+
+    step_by_entry = dict(zip(original_entry_indices, new_ids, strict=True))
+    return stabilized_steps, step_by_entry
+
+
 def _retained_entries(
     entries: list[Any], options: HarCaptureOptions
 ) -> list[tuple[int, Any]]:
@@ -332,6 +403,9 @@ def normalize_har(document: Mapping[str, Any], options: HarCaptureOptions) -> di
         except InferenceInvariantError as exc:
             raise HarCaptureError(str(exc)) from exc
 
+    steps, step_by_entry = _stabilize_step_ids(
+        steps, [index for index, _entry in processed_entries]
+    )
 
     return {
         "name": "har-imported-workflow",
