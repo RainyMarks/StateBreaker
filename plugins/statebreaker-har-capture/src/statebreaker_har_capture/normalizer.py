@@ -10,6 +10,10 @@ from typing import Any
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 from statebreaker_har_capture.errors import HarCaptureError
+from statebreaker_har_capture.inference import (
+    InferenceInvariantError,
+    infer_response_variables,
+)
 from statebreaker_har_capture.options import HarCaptureOptions
 from statebreaker_har_capture.resource_filter import (
     StaticResourceReason,
@@ -256,6 +260,7 @@ def normalize_har(document: Mapping[str, Any], options: HarCaptureOptions) -> di
     base_url = ""
     steps: list[dict[str, Any]] = []
     step_by_entry: dict[int, str] = {}
+    processed_entries: list[tuple[int, Mapping[str, Any]]] = []
 
     for index, entry in retained_entries:
         if not isinstance(entry, dict):
@@ -311,6 +316,7 @@ def normalize_har(document: Mapping[str, Any], options: HarCaptureOptions) -> di
             }
         )
         step_by_entry[index] = step_id
+        processed_entries.append((index, entry))
 
     missing_probes = [
         index for index in options.state_probe_entry_indices if index not in step_by_entry
@@ -319,6 +325,13 @@ def normalize_har(document: Mapping[str, Any], options: HarCaptureOptions) -> di
         raise HarCaptureError(
             f"HAR state probe error at entry {missing_probes[0]}: entry did not generate a step"
         )
+
+    if options.infer_response_variables:
+        try:
+            steps = infer_response_variables(processed_entries, steps)
+        except InferenceInvariantError as exc:
+            raise HarCaptureError(str(exc)) from exc
+
 
     return {
         "name": "har-imported-workflow",

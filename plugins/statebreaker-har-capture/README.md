@@ -17,8 +17,8 @@ statebreaker workflow validate workflow.json
 
 The importer accepts `GET`, `POST`, `PUT`, `PATCH`, and `DELETE` requests. JSON bodies and
 `application/x-www-form-urlencoded` bodies are normalized into the core `json_body` and
-`form_body` contracts. Other raw body formats are rejected with a clear error. Dynamic-variable
-inference and response extractors are not implemented yet.
+`form_body` contracts. Other raw body formats are rejected with a clear error. Conservative
+response-variable inference is available for replay-relevant JSON scalar values.
 
 Authorization and Cookie headers are preserved by default because a captured authenticated
 workflow must remain replayable. Treat exported Workflow files as sensitive data. Direct API
@@ -42,6 +42,32 @@ If a state probe selects a filtered entry, capture fails with the original index
 category. If every entry is filtered, capture fails before a Workflow is constructed. These errors
 do not include request URLs, headers, cookies, authorization values, or bodies.
 
+## JSON response extractors
+
+The plugin manifest advertises the `json-response-extractors` capability. Inference is enabled by
+default and only reads valid JSON response text from retained producer entries that appear before a
+consumer. Strict UTF-8 base64 content is supported. Responses or content explicitly marked with
+`_truncated=true` or `truncated=true` are skipped, as are missing, non-JSON, malformed, and
+unknown-encoding bodies. A semantically incomplete response that has no truncation marker and still
+forms valid JSON cannot be identified reliably as truncated.
+
+Eligible leaves are non-sensitive strings of at least eight characters and integers with an
+absolute value of at least 1000. Booleans, nulls, floats, common status values, short business
+constants, credential-shaped strings, and sensitive JSON field paths are excluded.
+
+A value is inferred only when exactly one prior `(producer step, JSONPath)` explains its first
+complete-value use. Ambiguous values are left literal. Generated JSONPath extractors are required
+and are added to the producer; consumers retain the linear dependency and explicitly depend on the
+producer.
+
+Replacement is limited to complete path segments, complete query values or list elements, JSON
+body string/integer leaves, and form values or list elements. Headers, Authorization, Cookie, URL
+host/scheme, response headers, dictionary keys, encoded path segments, and composite strings are
+never changed.
+
+This feature does not infer setup roles, authentication variables, CSRF flows, sessions, origins,
+or generic dependencies, and it does not prove Runtime replay.
+
 ## Options
 
 Direct plugin callers may pass the strict supported options:
@@ -51,6 +77,7 @@ workflow = await HarCapturePlugin().capture(
     Path("recording.har"),
     {
         "filter_static_resources": True,
+        "infer_response_variables": True,
         "state_probe_entry_indices": [1],
         "strip_credentials": False,
     },
@@ -58,7 +85,8 @@ workflow = await HarCapturePlugin().capture(
 ```
 
 Set `filter_static_resources=False` through the direct plugin API to retain every HAR entry.
-Filtering defaults to `True` when the options mapping is empty.
+Set `infer_response_variables=False` to keep normalized requests literal and emit no inferred
+extractors. Both conservative enhancements default to `True` when the options mapping is empty.
 
 Indices are zero-based positions in the original `log.entries` array. They must be unique,
 non-negative, in range, and refer to a generated step. Selected steps use the `probe` role
