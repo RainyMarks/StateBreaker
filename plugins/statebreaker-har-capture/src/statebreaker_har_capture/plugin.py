@@ -32,6 +32,7 @@ class HarCapturePlugin:
             "replayable-credentials",
             "static-resource-filtering",
             "explicit-entry-exclusion",
+            "browser-header-normalization",
             "json-response-extractors",
             "explicit-step-roles",
         ],

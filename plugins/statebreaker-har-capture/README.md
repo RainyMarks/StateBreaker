@@ -24,6 +24,65 @@ Authorization and Cookie headers are preserved by default because a captured aut
 workflow must remain replayable. Treat exported Workflow files as sensitive data. Direct API
 callers can set `strip_credentials=True` when they need a shareable redacted artifact.
 
+## Browser request Header normalization
+
+The plugin manifest advertises the `browser-header-normalization` capability. The strict
+`normalize_browser_headers: bool` option defaults to `True`. Configure it through a JSON or YAML
+file passed to the current CLI `--options` argument:
+
+```json
+{
+  "normalize_browser_headers": true,
+  "strip_credentials": false
+}
+```
+
+After explicit entry exclusion and static-resource filtering, but before a `RequestSpec` is
+created, the importer removes request Header fields managed by an HTTP client or browser context.
+Name and prefix matching is case-insensitive. Values of retained Headers are not modified.
+
+With normalization enabled, the explicit denylist removes:
+
+- connection and transport fields: `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`,
+  `Proxy-Connection`, `Keep-Alive`, `Upgrade`, `TE`, `Trailer`, and `Accept-Encoding`;
+- every HTTP/2 or HTTP/3 pseudo-header whose name starts with `:`;
+- browser context fields: `User-Agent`, `Priority`, `DNT`, `Sec-GPC`, every `Sec-Fetch-*`,
+  every `Sec-CH-*`, and every `Sec-WebSocket-*` Header;
+- browser cache noise: `Cache-Control`, `Pragma`, `If-None-Match`, and `If-Modified-Since`.
+
+This is a conservative denylist, not an application Header allowlist. `Content-Type`, `Accept`,
+`Accept-Language`, `Origin`, `Referer`, `X-Requested-With`, ordinary custom `X-*` Headers,
+`Idempotency-Key`, `If-Match`, `If-Unmodified-Since`, `Range`, and other unlisted application
+Headers remain available. `Origin` and `Referer` are currently preserved exactly rather than
+rewritten.
+
+`Authorization` and `Cookie` are deliberately absent from the browser denylist.
+`normalize_browser_headers` and `strip_credentials` are independent:
+
+| normalize_browser_headers | strip_credentials | Browser noise | Authorization/Cookie |
+| --- | --- | --- | --- |
+| `true` | `false` | removed | preserved |
+| `true` | `true` | removed | removed |
+| `false` | `false` | pre-feature behavior | preserved |
+| `false` | `true` | pre-feature behavior | removed |
+
+Setting `normalize_browser_headers=False` restores the Header behavior from before this capability.
+The legacy normalizer still removes its original transport-managed set (`Host`, `Content-Length`,
+`Transfer-Encoding`, `Connection`, and `Proxy-Authorization`); the new browser, cache, prefix, and
+pseudo-header rules are disabled. Existing duplicate retained Header handling is unchanged.
+
+Some applications may intentionally depend on `User-Agent` or a `Sec-*` Header. Such recordings can
+disable normalization explicitly. Header normalization does not prove that an arbitrary HAR is
+replayable, and business-flow selection remains the responsibility of `exclude_entry_indices`,
+`setup_entry_indices`, and `state_probe_entry_indices`.
+
+```bash
+statebreaker workflow import recording.har \
+  --plugin har.capture \
+  --options capture-options.json \
+  --output workflow.json
+```
+
 ## Static-resource filtering
 
 The plugin manifest advertises the `static-resource-filtering` capability.
@@ -176,6 +235,7 @@ workflow = await HarCapturePlugin().capture(
     {
         "filter_static_resources": True,
         "infer_response_variables": True,
+        "normalize_browser_headers": True,
         "exclude_entry_indices": [2, 4],
         "setup_entry_indices": [0],
         "state_probe_entry_indices": [1],
@@ -186,7 +246,9 @@ workflow = await HarCapturePlugin().capture(
 
 Set `filter_static_resources=False` through the direct plugin API to retain every HAR entry.
 Set `infer_response_variables=False` to keep normalized requests literal and emit no inferred
-extractors. Both conservative enhancements default to `True` when the options mapping is empty.
+extractors. Set `normalize_browser_headers=False` to restore the pre-capability Header behavior
+described above. These three options are strict booleans and default to `True` when the options
+mapping is empty. `strip_credentials` is a separate strict boolean that defaults to `False`.
 
 Indices are zero-based positions in the original `log.entries` array. Each list must contain
 unique, non-negative, in-range integers. Excluded indices must not overlap setup or probe indices,

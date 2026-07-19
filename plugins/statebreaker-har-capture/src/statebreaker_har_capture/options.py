@@ -12,6 +12,7 @@ class HarCaptureOptions(BaseModel):
 
     filter_static_resources: bool = True
     infer_response_variables: bool = True
+    normalize_browser_headers: bool = True
     exclude_entry_indices: list[int] = Field(default_factory=list)
     setup_entry_indices: list[int] = Field(default_factory=list)
     state_probe_entry_indices: list[int] = Field(default_factory=list)

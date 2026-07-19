@@ -28,7 +28,26 @@ NOISY_OPTIONS = {
     "exclude_entry_indices": NOISY_EXCLUDED_INDICES,
     "setup_entry_indices": [6],
     "state_probe_entry_indices": [7, 9],
+    "normalize_browser_headers": True,
 }
+EXPECTED_APPLICATION_HEADERS = {
+    "content-type",
+    "accept",
+    "accept-language",
+    "origin",
+    "referer",
+    "authorization",
+    "cookie",
+    "x-requested-with",
+    "x-capture-test",
+    "idempotency-key",
+    "if-match",
+    "if-unmodified-since",
+    "range",
+    "application-mode",
+}
+CREDENTIAL_HEADERS = {"authorization", "cookie"}
+DENIED_PREFIXES = ("sec-fetch-", "sec-ch-", "sec-websocket-", ":")
 
 
 def _entry_index(step_id: str) -> int:
@@ -46,6 +65,40 @@ def _assert_references_are_complete(workflow: Workflow) -> None:
     for probe_id in workflow.state_probe_steps:
         assert probe_id in steps_by_id
         assert steps_by_id[probe_id].role == "probe"
+
+
+def _assert_browser_headers_normalized(
+    workflow: Workflow, *, credentials_present: bool
+) -> None:
+    expected = EXPECTED_APPLICATION_HEADERS.copy()
+    if not credentials_present:
+        expected -= CREDENTIAL_HEADERS
+    for step in workflow.steps:
+        names = set(step.request.headers)
+        assert names == expected
+        assert not any(name.startswith(DENIED_PREFIXES) for name in names)
+        assert not names.intersection(
+            {
+                "host",
+                "content-length",
+                "transfer-encoding",
+                "connection",
+                "proxy-connection",
+                "keep-alive",
+                "upgrade",
+                "te",
+                "trailer",
+                "accept-encoding",
+                "user-agent",
+                "priority",
+                "dnt",
+                "sec-gpc",
+                "cache-control",
+                "pragma",
+                "if-none-match",
+                "if-modified-since",
+            }
+        )
 
 
 def test_exclude_entry_indices_default_to_empty_and_accept_multiple() -> None:
@@ -234,7 +287,7 @@ def test_noisy_chrome_fixture_is_small_sanitized_and_browser_shaped() -> None:
     document = json.loads(raw)
     entries = document["log"]["entries"]
 
-    assert len(raw) < 20_000
+    assert len(raw) < 30_000
     assert document["log"]["version"] == "1.2"
     assert len(entries) == 10
     assert {entry.get("_resourceType") for entry in entries} == {
@@ -249,15 +302,25 @@ def test_noisy_chrome_fixture_is_small_sanitized_and_browser_shaped() -> None:
     assert "text" not in entries[3]["response"]["content"]
     assert all(entry["request"].get("cookies", []) == [] for entry in entries)
     assert all(entry["response"].get("cookies", []) == [] for entry in entries)
-    assert all(
-        header.get("name", "").casefold()
-        not in {"authorization", "cookie", "set-cookie"}
+    all_headers = [
+        header
         for entry in entries
         for header in [
             *entry["request"].get("headers", []),
             *entry["response"].get("headers", []),
         ]
+    ]
+    assert all(
+        header.get("name", "").casefold() != "set-cookie" for header in all_headers
     )
+    assert {
+        (header["name"].casefold(), header["value"])
+        for header in all_headers
+        if header["name"].casefold() in CREDENTIAL_HEADERS
+    } == {
+        ("authorization", "Bearer synthetic-test-credential"),
+        ("cookie", "synthetic_session=test-only"),
+    }
 
 
 def test_noisy_chrome_exclusion_produces_exact_replayable_four_step_workflow() -> None:
@@ -301,6 +364,7 @@ def test_noisy_chrome_exclusion_produces_exact_replayable_four_step_workflow() -
     assert redeem.depends_on == [before_probe.id, create.id]
     assert after_probe.depends_on == [redeem.id, create.id]
     _assert_references_are_complete(workflow)
+    _assert_browser_headers_normalized(workflow, credentials_present=True)
     assert Workflow.model_validate(workflow.model_dump(mode="json")) == workflow
 
     serialized = workflow.model_dump_json()
@@ -314,6 +378,75 @@ def test_noisy_chrome_exclusion_produces_exact_replayable_four_step_workflow() -
             for dependency in step.depends_on
         )
         assert all(recorded_id not in probe for probe in workflow.state_probe_steps)
+
+
+def test_noisy_four_step_header_normalization_changes_only_headers() -> None:
+    document = parse_har(NOISY_FIXTURE)
+    normalized = Workflow.model_validate(
+        normalize_har(document, HarCaptureOptions.model_validate(NOISY_OPTIONS))
+    )
+    legacy = Workflow.model_validate(
+        normalize_har(
+            document,
+            HarCaptureOptions.model_validate(
+                {**NOISY_OPTIONS, "normalize_browser_headers": False}
+            ),
+        )
+    )
+
+    _assert_browser_headers_normalized(normalized, credentials_present=True)
+    assert sum(len(step.request.headers) for step in normalized.steps) < sum(
+        len(step.request.headers) for step in legacy.steps
+    )
+    assert all("authorization" in step.request.headers for step in legacy.steps)
+    assert all("cookie" in step.request.headers for step in legacy.steps)
+    assert any("user-agent" in step.request.headers for step in legacy.steps)
+    assert any(
+        any(name.startswith(":") for name in step.request.headers)
+        for step in legacy.steps
+    )
+    assert [step.id for step in normalized.steps] == [step.id for step in legacy.steps]
+    assert [step.role for step in normalized.steps] == [step.role for step in legacy.steps]
+    assert [step.request.path for step in normalized.steps] == [
+        step.request.path for step in legacy.steps
+    ]
+    assert [step.depends_on for step in normalized.steps] == [
+        step.depends_on for step in legacy.steps
+    ]
+    assert [step.extract for step in normalized.steps] == [
+        step.extract for step in legacy.steps
+    ]
+    assert normalized.state_probe_steps == legacy.state_probe_steps
+
+
+def test_noisy_four_step_credentials_can_be_stripped_without_structural_changes() -> None:
+    document = parse_har(NOISY_FIXTURE)
+    retained = Workflow.model_validate(
+        normalize_har(document, HarCaptureOptions.model_validate(NOISY_OPTIONS))
+    )
+    stripped = Workflow.model_validate(
+        normalize_har(
+            document,
+            HarCaptureOptions.model_validate(
+                {**NOISY_OPTIONS, "strip_credentials": True}
+            ),
+        )
+    )
+
+    _assert_browser_headers_normalized(retained, credentials_present=True)
+    _assert_browser_headers_normalized(stripped, credentials_present=False)
+    assert [step.id for step in retained.steps] == [step.id for step in stripped.steps]
+    assert [step.role for step in retained.steps] == [step.role for step in stripped.steps]
+    assert [step.request.path for step in retained.steps] == [
+        step.request.path for step in stripped.steps
+    ]
+    assert [step.depends_on for step in retained.steps] == [
+        step.depends_on for step in stripped.steps
+    ]
+    assert [step.extract for step in retained.steps] == [
+        step.extract for step in stripped.steps
+    ]
+    assert retained.state_probe_steps == stripped.state_probe_steps
 
 
 def test_cli_import_excludes_noisy_entries_from_options_file(tmp_path: Path) -> None:
@@ -346,6 +479,14 @@ def test_cli_import_excludes_noisy_entries_from_options_file(tmp_path: Path) -> 
         "probe",
     ]
     assert [item.name for step in workflow.steps for item in step.extract] == ["run_id"]
+    assert [step.request.path for step in workflow.steps] == [
+        "/api/runs",
+        "/api/runs/${run_id}/state",
+        "/api/runs/${run_id}/redeem",
+        "/api/runs/${run_id}/state",
+    ]
+    _assert_references_are_complete(workflow)
+    _assert_browser_headers_normalized(workflow, credentials_present=True)
     assert OLD_RECORDED_ID not in workflow.model_dump_json()
     assert TARGET_RECORDED_ID not in workflow.model_dump_json()
 

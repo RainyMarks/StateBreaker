@@ -13,6 +13,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 from statebreaker.models import IDENTIFIER_PATTERN
 
 from statebreaker_har_capture.errors import HarCaptureError
+from statebreaker_har_capture.header_normalizer import is_browser_managed_header
 from statebreaker_har_capture.inference import (
     InferenceInvariantError,
     infer_response_variables,
@@ -103,7 +104,11 @@ def _normalize_query(request: Mapping[str, Any], url_query: str, index: int) -> 
 
 
 def _normalize_headers(
-    request: Mapping[str, Any], index: int, *, strip_credentials: bool
+    request: Mapping[str, Any],
+    index: int,
+    *,
+    normalize_browser_headers: bool,
+    strip_credentials: bool,
 ) -> dict[str, str]:
     items = request.get("headers", [])
     if not isinstance(items, list):
@@ -125,6 +130,8 @@ def _normalize_headers(
             )
         normalized_name = name.lower()
         if normalized_name in REMOVED_HEADERS:
+            continue
+        if normalize_browser_headers and is_browser_managed_header(normalized_name):
             continue
         if strip_credentials and normalized_name in CREDENTIAL_HEADERS:
             continue
@@ -406,7 +413,10 @@ def normalize_har(document: Mapping[str, Any], options: HarCaptureOptions) -> di
             "method": method,
             "path": path,
             "headers": _normalize_headers(
-                request, index, strip_credentials=options.strip_credentials
+                request,
+                index,
+                normalize_browser_headers=options.normalize_browser_headers,
+                strip_credentials=options.strip_credentials,
             ),
             "query": _normalize_query(request, url_query, index),
         }

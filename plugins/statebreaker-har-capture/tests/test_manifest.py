@@ -23,6 +23,7 @@ def test_manifest_is_complete_and_explicit() -> None:
         "replayable-credentials",
         "static-resource-filtering",
         "explicit-entry-exclusion",
+        "browser-header-normalization",
         "json-response-extractors",
         "explicit-step-roles",
     ]
@@ -41,6 +42,10 @@ def test_readme_documents_inference_capability_and_limits() -> None:
     assert "json-response-extractors" in readme
     assert "explicit-step-roles" in readme
     assert "explicit-entry-exclusion" in readme
+    assert "browser-header-normalization" in readme
+    assert "normalize_browser_headers" in readme
+    assert "Sec-Fetch-*" in readme
+    assert "strip_credentials" in readme
     assert "exclude_entry_indices" in readme
     assert "original zero-based" in readme
     assert "business-flow selection" in readme
