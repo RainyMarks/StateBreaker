@@ -42,6 +42,50 @@ If a state probe selects a filtered entry, capture fails with the original index
 category. If every entry is filtered, capture fails before a Workflow is constructed. These errors
 do not include request URLs, headers, cookies, authorization values, or bodies.
 
+## Explicit entry exclusion
+
+The plugin manifest advertises the `explicit-entry-exclusion` capability. Use
+`exclude_entry_indices` for explicit business-flow selection when a recording contains page
+loads, polling, repeated setup calls, or other valid requests that do not belong in the target
+workflow. Values are original zero-based HAR `log.entries` indices, not positions after static
+filtering:
+
+```json
+{
+  "exclude_entry_indices": [0, 1, 2, 5],
+  "setup_entry_indices": [6],
+  "state_probe_entry_indices": [7, 9]
+}
+```
+
+The exclusion list must contain unique, non-negative, in-range integers. It must not overlap
+`setup_entry_indices` or `state_probe_entry_indices`; conflicting roles have no implicit
+priority. Out-of-range indices fail with the original index and entry count. If explicit
+exclusion alone, or exclusion followed by static filtering, leaves no usable entry, capture
+fails instead of emitting an empty Workflow.
+
+Exclusion happens before static-resource filtering, origin and base-URL selection, request
+normalization, Header or body processing, and response-variable inference. An excluded entry
+therefore cannot create a step or Extractor, provide a response value, affect the origin, appear
+in dependencies or `state_probe_steps`, or contribute any data to the serialized Workflow. If an
+excluded producer's recorded value remains in a retained consumer, the existing conservative
+inference rules leave that consumer literal; the plugin does not invent an Extractor.
+
+Explicit exclusion and static-resource filtering are independent. Static filtering classifies
+known resource types such as CSS and JavaScript; `exclude_entry_indices` performs user-directed
+business-flow selection. Either feature can exclude the same valid original entry, exclusion
+still applies when `filter_static_resources=False`, and one feature does not replace the other.
+The plugin does not automatically decide which repeated create, state, events, or action calls
+belong to the user's intended business flow.
+
+The core CLI reads these options from a JSON or YAML file through the current `--options` path
+argument:
+
+```bash
+statebreaker workflow import recording.har --plugin har.capture \
+  --options capture-options.json --output workflow.json
+```
+
 ## Explicit step roles
 
 The plugin manifest advertises the `explicit-step-roles` capability. Callers can assign roles with
@@ -132,6 +176,7 @@ workflow = await HarCapturePlugin().capture(
     {
         "filter_static_resources": True,
         "infer_response_variables": True,
+        "exclude_entry_indices": [2, 4],
         "setup_entry_indices": [0],
         "state_probe_entry_indices": [1],
         "strip_credentials": False,
@@ -143,9 +188,10 @@ Set `filter_static_resources=False` through the direct plugin API to retain ever
 Set `infer_response_variables=False` to keep normalized requests literal and emit no inferred
 extractors. Both conservative enhancements default to `True` when the options mapping is empty.
 
-Indices are zero-based positions in the original `log.entries` array. They must be unique,
-non-negative, in range, and refer to a generated step. Setup and probe indices must not overlap.
-Only selected probe steps are listed in `state_probe_steps`. Selecting an entry removed by
+Indices are zero-based positions in the original `log.entries` array. Each list must contain
+unique, non-negative, in-range integers. Excluded indices must not overlap setup or probe indices,
+and setup and probe indices must not overlap each other. Setup and probe indices must refer to a
+generated step. Only selected probe steps are listed in `state_probe_steps`. Selecting an entry removed by
 static-resource filtering is an explicit error and is never silently ignored or remapped.
 
 The core CLI accepts the same mapping from a JSON or YAML file:

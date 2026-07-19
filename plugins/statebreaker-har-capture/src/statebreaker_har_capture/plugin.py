@@ -31,6 +31,7 @@ class HarCapturePlugin:
             "form-body",
             "replayable-credentials",
             "static-resource-filtering",
+            "explicit-entry-exclusion",
             "json-response-extractors",
             "explicit-step-roles",
         ],

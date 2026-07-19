@@ -283,7 +283,17 @@ def _stabilize_step_ids(
 def _retained_entries(
     entries: list[Any], options: HarCaptureOptions
 ) -> list[tuple[int, Any]]:
-    indexed_entries = list(enumerate(entries))
+    excluded_indices = set(options.exclude_entry_indices)
+    indexed_entries = [
+        (index, entry)
+        for index, entry in enumerate(entries)
+        if index not in excluded_indices
+    ]
+    if not indexed_entries:
+        raise HarCaptureError(
+            "HAR entry exclusion error: all entries were excluded; "
+            "no requests are available to generate a workflow"
+        )
     if not options.filter_static_resources:
         return indexed_entries
 
@@ -327,6 +337,13 @@ def normalize_har(document: Mapping[str, Any], options: HarCaptureOptions) -> di
 
     entries = document["log"]["entries"]
     entry_count = len(entries)
+    for excluded_index in options.exclude_entry_indices:
+        if excluded_index >= entry_count:
+            raise HarCaptureError(
+                "HAR entry exclusion error at entry "
+                f"{excluded_index}: index is out of range for {entry_count} entries"
+            )
+
     for setup_index in options.setup_entry_indices:
         if setup_index >= entry_count:
             raise HarCaptureError(
