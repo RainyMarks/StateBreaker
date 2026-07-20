@@ -6,11 +6,24 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
+from copy import deepcopy
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlsplit
 
+from statebreaker.models import IDENTIFIER_PATTERN
+
 from statebreaker_har_capture.errors import HarCaptureError
+from statebreaker_har_capture.header_normalizer import is_browser_managed_header
+from statebreaker_har_capture.inference import (
+    InferenceInvariantError,
+    infer_response_variables,
+)
 from statebreaker_har_capture.options import HarCaptureOptions
+from statebreaker_har_capture.resource_filter import (
+    StaticResourceReason,
+    static_resource_filter_reason,
+)
+from statebreaker_har_capture.response_body import decode_json_response
 
 ALLOWED_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE"})
 REMOVED_HEADERS = frozenset(
@@ -34,7 +47,7 @@ def _origin_and_base_url(url: str, index: int) -> tuple[tuple[str, str, int], st
         parsed = urlsplit(url)
         port = parsed.port
     except ValueError as exc:
-        raise _entry_error(index, "URL", f"invalid URL ({exc})") from exc
+        raise _entry_error(index, "URL", "invalid URL") from exc
 
     scheme = parsed.scheme.lower()
     if scheme not in {"http", "https"} or parsed.hostname is None:
@@ -92,7 +105,11 @@ def _normalize_query(request: Mapping[str, Any], url_query: str, index: int) -> 
 
 
 def _normalize_headers(
-    request: Mapping[str, Any], index: int, *, strip_credentials: bool
+    request: Mapping[str, Any],
+    index: int,
+    *,
+    normalize_browser_headers: bool,
+    strip_credentials: bool,
 ) -> dict[str, str]:
     items = request.get("headers", [])
     if not isinstance(items, list):
@@ -115,11 +132,13 @@ def _normalize_headers(
         normalized_name = name.lower()
         if normalized_name in REMOVED_HEADERS:
             continue
+        if normalize_browser_headers and is_browser_managed_header(normalized_name):
+            continue
         if strip_credentials and normalized_name in CREDENTIAL_HEADERS:
             continue
         if normalized_name in headers:
             raise _entry_error(
-                index, "header", f"duplicate retained header name {normalized_name!r}"
+                index, "header", "duplicate retained header name"
             )
         headers[normalized_name] = value
     return headers
@@ -185,11 +204,10 @@ def _normalize_body(
     text = post_data.get("text", "")
     if text in {"", None} and not post_data.get("params"):
         return None, None
-    rendered_type = mime_type or "unspecified"
     raise _entry_error(
         index,
         "body",
-        f"unsupported request body content type {rendered_type!r}; use JSON or form data",
+        "unsupported request body content type; use JSON or form data",
     )
 
 
@@ -201,11 +219,152 @@ def _step_id(index: int, method: str, path: str) -> str:
     return f"step-{index:04d}-{method.lower()}-{slug}-{digest}"
 
 
+def _stabilization_error(reason: str) -> HarCaptureError:
+    return HarCaptureError(f"HAR step ID stabilization invariant error: {reason}")
+
+
+def _stabilize_step_ids(
+    steps: list[dict[str, Any]], original_entry_indices: list[int]
+) -> tuple[list[dict[str, Any]], dict[int, str]]:
+    if len(steps) != len(original_entry_indices):
+        raise _stabilization_error("step and original entry index counts differ")
+    if len(set(original_entry_indices)) != len(original_entry_indices):
+        raise _stabilization_error("original entry indices must be unique")
+
+    old_ids: list[str] = []
+    new_ids: list[str] = []
+    for step, entry_index in zip(steps, original_entry_indices, strict=True):
+        old_id = step.get("id")
+        request = step.get("request")
+        if not isinstance(old_id, str):
+            raise _stabilization_error("step IDs must be strings")
+        if not isinstance(request, Mapping):
+            raise _stabilization_error("step requests must be objects")
+        method = request.get("method")
+        path = request.get("path")
+        if not isinstance(method, str) or not isinstance(path, str):
+            raise _stabilization_error("step methods and paths must be strings")
+
+        old_ids.append(old_id)
+        new_ids.append(_step_id(entry_index, method, path))
+
+    if len(set(old_ids)) != len(old_ids):
+        raise _stabilization_error("old step IDs must be unique")
+    if len(set(new_ids)) != len(new_ids):
+        raise _stabilization_error("new step IDs must be unique")
+    if any(re.fullmatch(IDENTIFIER_PATTERN, step_id) is None for step_id in new_ids):
+        raise _stabilization_error("new step IDs must satisfy the core identifier rule")
+
+    id_mapping = dict(zip(old_ids, new_ids, strict=True))
+    old_id_set = set(old_ids)
+    remapped_dependencies: list[list[str]] = []
+    for position, step in enumerate(steps):
+        dependencies = step.get("depends_on")
+        if not isinstance(dependencies, list):
+            raise _stabilization_error("depends_on must be a list")
+
+        remapped: list[str] = []
+        seen: set[str] = set()
+        for dependency in dependencies:
+            if not isinstance(dependency, str) or dependency not in old_id_set:
+                raise _stabilization_error("depends_on contains an unknown step ID")
+            new_dependency = id_mapping[dependency]
+            if new_dependency == new_ids[position]:
+                raise _stabilization_error("steps must not depend on themselves")
+            if new_dependency not in seen:
+                seen.add(new_dependency)
+                remapped.append(new_dependency)
+        remapped_dependencies.append(remapped)
+
+    stabilized_steps = deepcopy(steps)
+    for step, new_id, dependencies in zip(
+        stabilized_steps, new_ids, remapped_dependencies, strict=True
+    ):
+        step["id"] = new_id
+        step["depends_on"] = dependencies
+
+    step_by_entry = dict(zip(original_entry_indices, new_ids, strict=True))
+    return stabilized_steps, step_by_entry
+
+
+def _retained_entries(
+    entries: list[Any], options: HarCaptureOptions
+) -> list[tuple[int, Any]]:
+    excluded_indices = set(options.exclude_entry_indices)
+    indexed_entries = [
+        (index, entry)
+        for index, entry in enumerate(entries)
+        if index not in excluded_indices
+    ]
+    if not indexed_entries:
+        raise HarCaptureError(
+            "HAR entry exclusion error: all entries were excluded; "
+            "no requests are available to generate a workflow"
+        )
+    if not options.filter_static_resources:
+        return indexed_entries
+
+    retained: list[tuple[int, Any]] = []
+    filtered: dict[int, StaticResourceReason] = {}
+    for index, entry in indexed_entries:
+        reason = static_resource_filter_reason(entry) if isinstance(entry, Mapping) else None
+        if reason is None:
+            retained.append((index, entry))
+        else:
+            filtered[index] = reason
+
+    for setup_index in options.setup_entry_indices:
+        reason = filtered.get(setup_index)
+        if reason is not None:
+            raise HarCaptureError(
+                "HAR setup role error at entry "
+                f"{setup_index}: selected entry was filtered as a static resource "
+                f"({reason.value})"
+            )
+
+    for probe_index in options.state_probe_entry_indices:
+        reason = filtered.get(probe_index)
+        if reason is not None:
+            raise HarCaptureError(
+                "HAR state probe error at entry "
+                f"{probe_index}: selected entry was filtered as a static resource "
+                f"({reason.value})"
+            )
+
+    for required_index in sorted(options.required_response_body_entry_indices):
+        if required_index in filtered:
+            raise HarCaptureError(
+                "HAR required response body error at entry "
+                f"{required_index}: selected entry was filtered"
+            )
+
+    if not retained:
+        raise HarCaptureError(
+            "HAR static resource filter error: all entries were filtered; "
+            "no business requests are available to generate a workflow"
+        )
+    return retained
+
+
 def normalize_har(document: Mapping[str, Any], options: HarCaptureOptions) -> dict[str, Any]:
     """Return a deterministic Workflow-shaped mapping without mutating *document*."""
 
     entries = document["log"]["entries"]
     entry_count = len(entries)
+    for excluded_index in options.exclude_entry_indices:
+        if excluded_index >= entry_count:
+            raise HarCaptureError(
+                "HAR entry exclusion error at entry "
+                f"{excluded_index}: index is out of range for {entry_count} entries"
+            )
+
+    for setup_index in options.setup_entry_indices:
+        if setup_index >= entry_count:
+            raise HarCaptureError(
+                "HAR setup role error at entry "
+                f"{setup_index}: index is out of range for {entry_count} entries"
+            )
+
     for probe_index in options.state_probe_entry_indices:
         if probe_index >= entry_count:
             raise HarCaptureError(
@@ -213,12 +372,23 @@ def normalize_har(document: Mapping[str, Any], options: HarCaptureOptions) -> di
                 f"{probe_index}: index is out of range for {entry_count} entries"
             )
 
+    for required_index in sorted(options.required_response_body_entry_indices):
+        if required_index >= entry_count:
+            raise HarCaptureError(
+                "HAR required response body error at entry "
+                f"{required_index}: index is out of range for {entry_count} entries"
+            )
+    retained_entries = _retained_entries(entries, options)
+
     expected_origin: tuple[str, str, int] | None = None
     base_url = ""
     steps: list[dict[str, Any]] = []
     step_by_entry: dict[int, str] = {}
+    processed_entries: list[tuple[int, Mapping[str, Any]]] = []
+    setup_indices = set(options.setup_entry_indices)
+    probe_indices = set(options.state_probe_entry_indices)
 
-    for index, entry in enumerate(entries):
+    for index, entry in retained_entries:
         if not isinstance(entry, dict):
             raise _entry_error(index, "structure", "entry must be an object")
         request = entry.get("request")
@@ -246,12 +416,20 @@ def normalize_har(document: Mapping[str, Any], options: HarCaptureOptions) -> di
 
         step_id = _step_id(index, method, path)
         depends_on = [steps[-1]["id"]] if steps else []
-        is_probe = index in options.state_probe_entry_indices
+        if index in setup_indices:
+            role = "setup"
+        elif index in probe_indices:
+            role = "probe"
+        else:
+            role = "action"
         request_spec: dict[str, Any] = {
             "method": method,
             "path": path,
             "headers": _normalize_headers(
-                request, index, strip_credentials=options.strip_credentials
+                request,
+                index,
+                normalize_browser_headers=options.normalize_browser_headers,
+                strip_credentials=options.strip_credentials,
             ),
             "query": _normalize_query(request, url_query, index),
         }
@@ -263,7 +441,7 @@ def normalize_har(document: Mapping[str, Any], options: HarCaptureOptions) -> di
         steps.append(
             {
                 "id": step_id,
-                "role": "probe" if is_probe else "action",
+                "role": role,
                 "session": "default",
                 "request": request_spec,
                 "extract": [],
@@ -272,6 +450,15 @@ def normalize_har(document: Mapping[str, Any], options: HarCaptureOptions) -> di
             }
         )
         step_by_entry[index] = step_id
+        processed_entries.append((index, entry))
+
+    missing_setups = [
+        index for index in options.setup_entry_indices if index not in step_by_entry
+    ]
+    if missing_setups:
+        raise HarCaptureError(
+            f"HAR setup role error at entry {missing_setups[0]}: entry did not generate a step"
+        )
 
     missing_probes = [
         index for index in options.state_probe_entry_indices if index not in step_by_entry
@@ -280,6 +467,25 @@ def normalize_har(document: Mapping[str, Any], options: HarCaptureOptions) -> di
         raise HarCaptureError(
             f"HAR state probe error at entry {missing_probes[0]}: entry did not generate a step"
         )
+
+    processed_by_entry = dict(processed_entries)
+    for required_index in sorted(options.required_response_body_entry_indices):
+        result = decode_json_response(processed_by_entry[required_index])
+        if result.failure is not None:
+            raise HarCaptureError(
+                "HAR required response body error at entry "
+                f"{required_index}: {result.failure.value}"
+            )
+
+    if options.infer_response_variables:
+        try:
+            steps = infer_response_variables(processed_entries, steps)
+        except InferenceInvariantError as exc:
+            raise HarCaptureError(str(exc)) from exc
+
+    steps, step_by_entry = _stabilize_step_ids(
+        steps, [index for index, _entry in processed_entries]
+    )
 
     return {
         "name": "har-imported-workflow",

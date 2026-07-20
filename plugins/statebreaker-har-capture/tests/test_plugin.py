@@ -30,6 +30,7 @@ async def test_capture_returns_real_workflow_and_is_deterministic() -> None:
     assert first.sessions["default"].cookies == {}
     assert first.variables == {}
     assert all(step.extract == [] for step in first.steps)
+    assert all(step.role == "action" for step in first.steps)
 
 
 @pytest.mark.asyncio
@@ -66,6 +67,25 @@ async def test_invalid_state_probe_indices_fail_cleanly() -> None:
         await plugin.capture(FIXTURES / "minimal.har", {"state_probe_entry_indices": [0, 0]})
     with pytest.raises(HarCaptureError, match="non-negative"):
         await plugin.capture(FIXTURES / "minimal.har", {"state_probe_entry_indices": [-1]})
+
+
+@pytest.mark.asyncio
+async def test_invalid_setup_indices_and_role_conflicts_fail_cleanly() -> None:
+    plugin = HarCapturePlugin()
+
+    with pytest.raises(HarCaptureError, match=r"setup role error at entry 9.*out of range"):
+        await plugin.capture(FIXTURES / "minimal.har", {"setup_entry_indices": [9]})
+    with pytest.raises(HarCaptureError, match="setup_entry_indices must not contain duplicates"):
+        await plugin.capture(
+            FIXTURES / "minimal.har", {"setup_entry_indices": [0, 0]}
+        )
+    with pytest.raises(HarCaptureError, match="setup_entry_indices.*non-negative"):
+        await plugin.capture(FIXTURES / "minimal.har", {"setup_entry_indices": [-1]})
+    with pytest.raises(HarCaptureError, match=r"role index conflict.*\[0\]"):
+        await plugin.capture(
+            FIXTURES / "minimal.har",
+            {"setup_entry_indices": [0], "state_probe_entry_indices": [0, 1]},
+        )
 
 
 def test_options_forbid_unknown_fields() -> None:
@@ -132,3 +152,43 @@ def test_cli_workflow_import_passes_options_file(tmp_path: Path) -> None:
     assert workflow.state_probe_steps == [workflow.steps[0].id]
     assert "authorization" not in workflow.steps[0].request.headers
     assert "cookie" not in workflow.steps[0].request.headers
+
+
+def test_cli_workflow_import_passes_explicit_step_roles(tmp_path: Path) -> None:
+    output = tmp_path / "workflow.json"
+    options = tmp_path / "capture-options.json"
+    options.write_text(
+        json.dumps(
+            {
+                "setup_entry_indices": [0],
+                "state_probe_entry_indices": [1, 3],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "workflow",
+            "import",
+            str(FIXTURES / "coupon-race-normal.har"),
+            "--plugin",
+            "har.capture",
+            "--options",
+            str(options),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    workflow = Workflow.model_validate(json.loads(output.read_text(encoding="utf-8")))
+    assert [step.role for step in workflow.steps] == [
+        "setup",
+        "probe",
+        "action",
+        "probe",
+    ]
+    assert workflow.state_probe_steps == [workflow.steps[1].id, workflow.steps[3].id]
+    assert workflow.steps[0].extract[0].expression == "$.run_id"
