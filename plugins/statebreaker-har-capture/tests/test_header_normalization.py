@@ -359,8 +359,10 @@ def test_duplicate_retained_header_behavior_is_unchanged(
         )
     )
 
-    with pytest.raises(HarCaptureError, match="duplicate retained header name"):
+    with pytest.raises(HarCaptureError, match="duplicate retained header name") as error:
         normalize_har(
             document,
             HarCaptureOptions(normalize_browser_headers=normalize_browser_headers),
         )
+
+    assert "x-capture-test" not in str(error.value).casefold()

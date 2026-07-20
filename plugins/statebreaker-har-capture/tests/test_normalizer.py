@@ -230,13 +230,33 @@ def test_invalid_json_body_is_rejected_without_leaking_body() -> None:
 
 def test_unsupported_raw_request_body_is_explicitly_rejected() -> None:
     document = parse_har(FIXTURES / "minimal.har")
+    secret_mime = "text/TEST-SECRET-MIME"
+    secret_body = "TEST-SECRET-RAW-BODY"
     document["log"]["entries"][0]["request"]["postData"] = {
-        "mimeType": "text/plain",
-        "text": "not emitted",
+        "mimeType": secret_mime,
+        "text": secret_body,
     }
 
-    with pytest.raises(HarCaptureError, match="unsupported request body content type"):
+    with pytest.raises(
+        HarCaptureError, match="unsupported request body content type"
+    ) as error:
         normalize_har(document, HarCaptureOptions())
+
+    assert secret_mime not in str(error.value)
+    assert secret_body not in str(error.value)
+
+
+def test_invalid_url_error_does_not_disclose_invalid_port_text() -> None:
+    document = parse_har(FIXTURES / "minimal.har")
+    secret_port = "TEST-SECRET-PORT"
+    document["log"]["entries"][0]["request"]["url"] = (
+        f"https://example.test:{secret_port}/api/runs"
+    )
+
+    with pytest.raises(HarCaptureError, match=r"URL error at entry 0: invalid URL") as error:
+        normalize_har(document, HarCaptureOptions())
+
+    assert secret_port not in str(error.value)
 
 
 def test_cross_origin_request_is_rejected() -> None:

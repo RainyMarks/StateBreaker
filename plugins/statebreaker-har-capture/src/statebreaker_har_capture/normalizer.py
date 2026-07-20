@@ -47,7 +47,7 @@ def _origin_and_base_url(url: str, index: int) -> tuple[tuple[str, str, int], st
         parsed = urlsplit(url)
         port = parsed.port
     except ValueError as exc:
-        raise _entry_error(index, "URL", f"invalid URL ({exc})") from exc
+        raise _entry_error(index, "URL", "invalid URL") from exc
 
     scheme = parsed.scheme.lower()
     if scheme not in {"http", "https"} or parsed.hostname is None:
@@ -138,7 +138,7 @@ def _normalize_headers(
             continue
         if normalized_name in headers:
             raise _entry_error(
-                index, "header", f"duplicate retained header name {normalized_name!r}"
+                index, "header", "duplicate retained header name"
             )
         headers[normalized_name] = value
     return headers
@@ -204,11 +204,10 @@ def _normalize_body(
     text = post_data.get("text", "")
     if text in {"", None} and not post_data.get("params"):
         return None, None
-    rendered_type = mime_type or "unspecified"
     raise _entry_error(
         index,
         "body",
-        f"unsupported request body content type {rendered_type!r}; use JSON or form data",
+        "unsupported request body content type; use JSON or form data",
     )
 
 
