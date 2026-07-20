@@ -1318,3 +1318,74 @@ docker compose down
 - [优惠券 AttackPlan 示例](examples/coupon-race/attack-plan.yaml)
 
 如果 README 与代码冲突，以 `src/statebreaker/models.py` 中的模型和 CLI 的 `--help` 输出为当前 v0.1 的最终依据，并及时修正文档。
+
+---
+
+## 18. Local lightweight business-logic labs
+
+This branch extends the original coupon-race demo into a small business-logic attack suite that can run on Windows without Docker. The new local runner is:
+
+```powershell
+.\.venv\Scripts\python.exe labs\run_local_lab.py <lab-name>
+```
+
+Available local labs and default ports:
+
+- `coupon-race`: port `8080`, duplicate coupon redemption race.
+- `payment-step-skip`: port `8090`, confirms an order while skipping the payment prerequisite.
+- `bank-double-withdraw`: port `8091`, concurrent withdrawal / overdraft race.
+- `payment-callback-idempotency`: port `8092`, duplicate gateway callback applies credit more than once.
+- `refund-vs-fulfill-race`: port `8093`, refund and fulfillment commit against the same paid order.
+- `payment-binding-mismatch`: port `8094`, cross-user payment authorization bypass and payment-token/order binding mismatch.
+
+The bundled `team.business-logic-generator` now aggregates specialized strategies for these scenarios before falling back to generic invariant replay:
+
+- `step-skip`
+- `double-withdraw-race`
+- `payment-callback-idempotency`
+- `refund-vs-fulfill-race`
+- `authorization-bypass`
+- `binding-mismatch`
+- generic concurrent / burst / offset / sequential replay plans
+
+### Payment authorization bypass and binding mismatch
+
+The newest demo is under `labs/payment-binding-mismatch/` and `examples/payment-binding-mismatch/`. It intentionally models two common payment bugs:
+
+1. Alice can pay Bob's order by submitting Bob's `order_id` from Alice's authenticated session. The server authenticates Alice but does not check `order.owner == actor` before committing payment.
+2. Alice can create a payment token for Alice's own order, then use that token against Bob's order. The server checks `token.owner == actor`, but forgets to check `token.order_id == target_order_id`.
+
+Run the lab:
+
+```powershell
+.\.venv\Scripts\python.exe labs\run_local_lab.py payment-binding-mismatch
+```
+
+In another terminal, run the authorization-bypass pipeline:
+
+```powershell
+.\.venv\Scripts\statebreaker.exe pipeline run examples\payment-binding-mismatch\authorization-workflow.yaml examples\payment-binding-mismatch\authorization-invariants.yaml --generator team.business-logic-generator --executor team.race-executor --verifier team.basic-verifier --plan-id payment-binding.alice-pay-bob-order.bob-order-not-paid-by-alice.single --target http://127.0.0.1:8094 --quiet
+```
+
+Run the token/order binding-mismatch pipeline:
+
+```powershell
+.\.venv\Scripts\statebreaker.exe pipeline run examples\payment-binding-mismatch\binding-workflow.yaml examples\payment-binding-mismatch\binding-invariants.yaml --generator team.business-logic-generator --executor team.race-executor --verifier team.basic-verifier --plan-id payment-binding.alice-token-pay-bob-order.bob-order-not-paid-with-alice-token.single --target http://127.0.0.1:8094 --quiet
+```
+
+Expected verification result for both pipelines is `confirmed=1`. The executor records business evidence such as `unauthorized_payment_observed`, `binding_mismatch_observed`, `bob_paid_by`, `bob_payment_token_owner`, and `bob_payment_token_order_id` in `RawAttackResult.plugin_data`.
+
+### Validation used for this branch
+
+The following checks were run locally on Windows:
+
+```powershell
+.\.venv\Scripts\python.exe -m ruff check race-generator race-executor labs\payment-binding-mismatch
+.\.venv\Scripts\python.exe -m pytest labs\payment-binding-mismatch\tests race-generator\tests\test_payment_binding_generator.py race-executor\tests\test_payment_binding_executor.py
+.\.venv\Scripts\statebreaker.exe plugins list
+```
+
+The targeted test set passed with `7 passed`. The two end-to-end CLI runs against `payment-binding-mismatch` both produced confirmed findings.
+
+> These labs are intentionally vulnerable and are only for local or explicitly authorized security testing.
+

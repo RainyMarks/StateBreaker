@@ -1,0 +1,29 @@
+schema_version: "0.1"
+id: callback-idempotency.payment-callback.merchant-credit-single-callback-delta.simultaneous-c2
+workflow_name: payment-callback-idempotency-demo
+attack_type: concurrent-replay
+target_steps: [payment-callback]
+session_bindings:
+  payment-callback: gateway
+schedule:
+  schema_version: "0.1"
+  concurrency: 2
+  offsets_ms: [0, 0]
+  options:
+    strategy: simultaneous
+    max_attempts: 1
+    hard_concurrency_limit: 2
+    required_executor_capability: concurrent-replay
+invariant_ids: [merchant-credit-single-callback-delta]
+metadata:
+  lab: payment-callback-idempotency
+  purpose: Submit two identical payment callbacks concurrently.
+  invariant:
+    id: merchant-credit-single-callback-delta
+    kind: max-delta
+    selector: $.merchant_credit_cents
+    before_probe: state-before
+    after_probe: state-after
+    parameters:
+      max_delta: 10000
+    description: One payment callback event must add merchant credit at most once.

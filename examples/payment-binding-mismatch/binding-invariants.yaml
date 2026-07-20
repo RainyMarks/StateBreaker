@@ -1,0 +1,10 @@
+- schema_version: "0.1"
+  id: bob-order-not-paid-with-alice-token
+  kind: state-transition
+  selector: $.bob_order.bob_paid_with_alice_token
+  before_probe: state-before
+  after_probe: state-after
+  parameters:
+    from: false
+    to: false
+  description: A token issued for Alice's order must not pay or bind to Bob's order.

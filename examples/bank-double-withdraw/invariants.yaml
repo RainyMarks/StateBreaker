@@ -1,0 +1,19 @@
+- schema_version: "0.1"
+  id: account-balance-never-negative
+  kind: min-value
+  selector: $.balance_cents
+  before_probe: state-before
+  after_probe: state-after
+  parameters:
+    min_value: 0
+  description: Bank account balance must never become negative after withdrawals.
+
+- schema_version: "0.1"
+  id: one-successful-withdrawal-per-full-balance
+  kind: count-limit
+  selector: $.successful_withdrawals
+  before_probe: state-before
+  after_probe: state-after
+  parameters:
+    max_count: 1
+  description: A full-balance withdrawal may succeed at most once for one account state.

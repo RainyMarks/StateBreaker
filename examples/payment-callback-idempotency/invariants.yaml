@@ -1,0 +1,19 @@
+- schema_version: "0.1"
+  id: merchant-credit-single-callback-delta
+  kind: max-delta
+  selector: $.merchant_credit_cents
+  before_probe: state-before
+  after_probe: state-after
+  parameters:
+    max_delta: 10000
+  description: One payment callback event must add merchant credit at most once.
+
+- schema_version: "0.1"
+  id: payment-event-applied-once
+  kind: count-limit
+  selector: $.payment_apply_count
+  before_probe: state-before
+  after_probe: state-after
+  parameters:
+    max_count: 1
+  description: One payment event_id must be applied at most once.

@@ -1,0 +1,10 @@
+- schema_version: "0.1"
+  id: payment-required-before-confirm
+  kind: state-transition
+  selector: $.confirmed_without_payment
+  before_probe: state-before
+  after_probe: state-after
+  parameters:
+    from: false
+    to: false
+  description: An order must never become confirmed while payment_status is still UNPAID.

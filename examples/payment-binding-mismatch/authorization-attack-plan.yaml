@@ -1,0 +1,29 @@
+schema_version: "0.1"
+id: payment-binding.alice-pay-bob-order.bob-order-not-paid-by-alice.single
+workflow_name: payment-authorization-bypass-demo
+attack_type: authorization-bypass
+target_steps: [alice-pay-bob-order]
+session_bindings:
+  alice-pay-bob-order: alice
+schedule:
+  schema_version: "0.1"
+  concurrency: 1
+  offsets_ms: [0]
+  options:
+    strategy: single-target
+    hard_request_limit: 1
+    required_executor_capability: authorization-bypass
+invariant_ids: [bob-order-not-paid-by-alice]
+metadata:
+  lab: payment-binding-mismatch
+  purpose: Pay Bob's order from Alice's authenticated session by swapping the order id.
+  invariant:
+    id: bob-order-not-paid-by-alice
+    kind: state-transition
+    selector: $.bob_order.bob_paid_by_alice
+    before_probe: state-before
+    after_probe: state-after
+    parameters:
+      from: false
+      to: false
+    description: Alice must never be able to pay a Bob-owned order by changing order_id.

@@ -1,0 +1,29 @@
+schema_version: "0.1"
+id: payment-binding.alice-token-pay-bob-order.bob-order-not-paid-with-alice-token.single
+workflow_name: payment-binding-mismatch-demo
+attack_type: binding-mismatch
+target_steps: [alice-token-pay-bob-order]
+session_bindings:
+  alice-token-pay-bob-order: alice
+schedule:
+  schema_version: "0.1"
+  concurrency: 1
+  offsets_ms: [0]
+  options:
+    strategy: single-target
+    hard_request_limit: 1
+    required_executor_capability: binding-mismatch
+invariant_ids: [bob-order-not-paid-with-alice-token]
+metadata:
+  lab: payment-binding-mismatch
+  purpose: Reuse Alice's payment token, issued for Alice's order, against Bob's order.
+  invariant:
+    id: bob-order-not-paid-with-alice-token
+    kind: state-transition
+    selector: $.bob_order.bob_paid_with_alice_token
+    before_probe: state-before
+    after_probe: state-after
+    parameters:
+      from: false
+      to: false
+    description: A token issued for Alice's order must not pay or bind to Bob's order.

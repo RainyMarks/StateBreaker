@@ -1,0 +1,10 @@
+- schema_version: "0.1"
+  id: order-not-refunded-and-fulfilled
+  kind: state-transition
+  selector: $.refunded_and_fulfilled
+  before_probe: state-before
+  after_probe: state-after
+  parameters:
+    from: false
+    to: false
+  description: A paid order must never end as both refunded and fulfilled.

@@ -1,0 +1,30 @@
+schema_version: "0.1"
+id: refund-fulfill.refund-order.fulfill-order.order-not-refunded-and-fulfilled.simultaneous-c2
+workflow_name: refund-vs-fulfill-race-demo
+attack_type: parallel-step-race
+target_steps: [refund-order, fulfill-order]
+session_bindings:
+  refund-order: alice
+  fulfill-order: alice
+schedule:
+  schema_version: "0.1"
+  concurrency: 2
+  offsets_ms: [0, 0]
+  options:
+    strategy: parallel-steps
+    hard_request_limit: 2
+    required_executor_capability: parallel-step-race
+invariant_ids: [order-not-refunded-and-fulfilled]
+metadata:
+  lab: refund-vs-fulfill-race
+  purpose: Submit refund and fulfillment concurrently for one paid order.
+  invariant:
+    id: order-not-refunded-and-fulfilled
+    kind: state-transition
+    selector: $.refunded_and_fulfilled
+    before_probe: state-before
+    after_probe: state-after
+    parameters:
+      from: false
+      to: false
+    description: A paid order must never end as both refunded and fulfilled.

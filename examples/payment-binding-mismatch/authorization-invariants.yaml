@@ -1,0 +1,10 @@
+- schema_version: "0.1"
+  id: bob-order-not-paid-by-alice
+  kind: state-transition
+  selector: $.bob_order.bob_paid_by_alice
+  before_probe: state-before
+  after_probe: state-after
+  parameters:
+    from: false
+    to: false
+  description: Alice must never be able to pay a Bob-owned order by changing order_id.

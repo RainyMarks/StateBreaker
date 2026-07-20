@@ -12,6 +12,13 @@ dependencies = ["statebreaker>=0.1,<0.2"]
 
 [project.entry-points."statebreaker.generator"]
 race-generator = "statebreaker_race_generator.plugin:RaceAttackGenerator"
+step-skip-generator = "statebreaker_race_generator.plugin:StepSkipAttackGenerator"
+bank-race-generator = "statebreaker_race_generator.plugin:BankRaceAttackGenerator"
+business-logic-generator = "statebreaker_race_generator.plugin:BusinessLogicAttackGenerator"
+payment-callback-generator = "statebreaker_race_generator.plugin:PaymentCallbackIdempotencyGenerator"
+refund-fulfill-generator = "statebreaker_race_generator.plugin:RefundFulfillRaceGenerator"
+payment-binding-generator = "statebreaker_race_generator.plugin:PaymentBindingAttackGenerator"
+generic-replay-generator = "statebreaker_race_generator.plugin:GenericInvariantReplayGenerator"
 
 [tool.setuptools.packages.find]
 where = ["src"]

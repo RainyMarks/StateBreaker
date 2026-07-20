@@ -1,0 +1,78 @@
+schema_version: "0.1"
+name: refund-vs-fulfill-race-demo
+description: A paid order must not become both refunded and fulfilled.
+base_url: http://127.0.0.1:8093
+sessions:
+  alice:
+    schema_version: "0.1"
+    headers:
+      User-Agent: StateBreaker-Lab/0.1
+    cookies: {}
+    follow_redirects: true
+variables: {}
+steps:
+  - schema_version: "0.1"
+    id: create-run
+    role: setup
+    session: alice
+    request:
+      schema_version: "0.1"
+      method: POST
+      path: /api/runs
+      headers: {}
+      query: {}
+      json_body: {}
+    extract:
+      - schema_version: "0.1"
+        name: run_id
+        kind: jsonpath
+        expression: $.run_id
+    depends_on: []
+    tags: [lab, reset, order]
+
+  - schema_version: "0.1"
+    id: state-before
+    role: probe
+    session: alice
+    request:
+      schema_version: "0.1"
+      method: GET
+      path: /api/runs/${run_id}/state
+    depends_on: [create-run]
+    tags: [state, before, order]
+
+  - schema_version: "0.1"
+    id: refund-order
+    role: action
+    session: alice
+    request:
+      schema_version: "0.1"
+      method: POST
+      path: /api/runs/${run_id}/refund
+      json_body: {}
+    depends_on: [state-before]
+    tags: [attack-target, refund]
+
+  - schema_version: "0.1"
+    id: fulfill-order
+    role: action
+    session: alice
+    request:
+      schema_version: "0.1"
+      method: POST
+      path: /api/runs/${run_id}/fulfill
+      json_body: {}
+    depends_on: [state-before]
+    tags: [attack-target, fulfill, shipment]
+
+  - schema_version: "0.1"
+    id: state-after
+    role: probe
+    session: alice
+    request:
+      schema_version: "0.1"
+      method: GET
+      path: /api/runs/${run_id}/state
+    depends_on: [refund-order, fulfill-order]
+    tags: [state, after, order]
+state_probe_steps: [state-before, state-after]

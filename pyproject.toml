@@ -39,7 +39,7 @@ statebreaker = ["py.typed"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 asyncio_mode = "auto"
-testpaths = ["tests", "labs/coupon-race/tests"]
+testpaths = ["tests", "labs/coupon-race/tests", "labs/payment-step-skip/tests", "labs/bank-double-withdraw/tests", "labs/payment-callback-idempotency/tests", "labs/refund-vs-fulfill-race/tests", "labs/payment-binding-mismatch/tests"]
 
 [tool.ruff]
 line-length = 100

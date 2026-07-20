@@ -10,7 +10,7 @@ from typing import Any
 
 from statebreaker import AttackPlan, PluginManifest, RawAttackResult
 from statebreaker.errors import PluginError
-from statebreaker.models import RequestSpec, RequestStep, ResponseRecord, StepRole
+from statebreaker.models import TEMPLATE_PATTERN, RequestSpec, RequestStep, ResponseRecord, StepRole
 from statebreaker.runtime import ExecutionRuntime
 
 SUPPORTED_ATTACK_TYPES = frozenset(
@@ -19,9 +19,14 @@ SUPPORTED_ATTACK_TYPES = frozenset(
         "burst-replay",
         "offset-sweep",
         "precondition-bypass-replay",
+        "sequential-replay",
         "idempotency-key-reuse",
         "stale-state-assisted-replay",
         "run-eviction-pressure",
+        "step-skip",
+        "parallel-step-race",
+        "authorization-bypass",
+        "binding-mismatch",
     }
 )
 MAX_TARGET_REQUESTS = 16
@@ -43,9 +48,15 @@ class RaceAttackExecutor:
             "burst-replay",
             "offset-sweep",
             "precondition-bypass-replay",
+            "sequential-replay",
             "idempotency-key-reuse",
             "stale-state-assisted-replay",
             "run-eviction-pressure",
+            "step-skip",
+            "parallel-step-race",
+            "authorization-bypass",
+            "binding-mismatch",
+            "payment-binding-mismatch",
             "bounded-concurrency",
             "state-evidence",
         ],
@@ -74,8 +85,6 @@ class RaceAttackExecutor:
     ) -> RawAttackResult:
         if plan.attack_type not in SUPPORTED_ATTACK_TYPES:
             raise PluginError(f"unsupported coupon attack type: {plan.attack_type}")
-        if len(plan.target_steps) != 1:
-            raise PluginError("race executor expects exactly one target step")
 
         required = plan.schedule.options.get("required_executor_capability")
         if required is not None:
@@ -85,6 +94,11 @@ class RaceAttackExecutor:
                     f"plan {plan.id!r} requires capability {required_name!r}, "
                     f"executor provides {sorted(self.manifest.capabilities)}"
                 )
+
+        if plan.attack_type == "parallel-step-race":
+            return await self._execute_parallel_step_race(plan, runtime)
+        if len(plan.target_steps) != 1:
+            raise PluginError("race executor expects exactly one target step")
 
         started_at = datetime.now(UTC)
         target_id = plan.target_steps[0]
@@ -100,6 +114,7 @@ class RaceAttackExecutor:
         after_state: dict[str, Any] = {}
         lab_events: list[dict[str, Any]] = []
         intermediate_states: list[dict[str, Any]] = []
+        _validate_skip_steps(plan, step_by_id, step_indexes, target_id, skip_steps)
 
         for step in runtime.workflow.steps[:target_index]:
             if step.id in skip_steps:
@@ -159,6 +174,107 @@ class RaceAttackExecutor:
                 after_state = _json_object(probe.body_preview)
 
         events_record = await _try_read_lab_events(runtime, target)
+        if events_record is not None:
+            lab_events = _json_object(events_record.body_preview).get("events", [])
+            if not isinstance(lab_events, list):
+                lab_events = []
+
+        finished_at = datetime.now(UTC)
+        plugin_data = _summarize(
+            plan,
+            target_records,
+            before_state,
+            after_state,
+            lab_events,
+            intermediate_states,
+        )
+        return RawAttackResult(
+            run_id=runtime.run_id,
+            attack_plan_id=plan.id,
+            started_at=started_at,
+            finished_at=finished_at,
+            responses=list(runtime.responses),
+            before_state=before_state,
+            after_state=after_state,
+            events=runtime.events,
+            plugin_data=plugin_data,
+        )
+
+    async def _execute_parallel_step_race(
+        self,
+        plan: AttackPlan,
+        runtime: ExecutionRuntime,
+    ) -> RawAttackResult:
+        if len(plan.target_steps) < 2:
+            raise PluginError("parallel-step-race expects at least two target steps")
+        if plan.schedule.concurrency != len(plan.target_steps):
+            raise PluginError("parallel-step-race concurrency must equal target_steps length")
+
+        started_at = datetime.now(UTC)
+        step_indexes = {step.id: index for index, step in enumerate(runtime.workflow.steps)}
+        step_by_id = {step.id: step for step in runtime.workflow.steps}
+        unknown = set(plan.target_steps) - set(step_by_id)
+        if unknown:
+            raise PluginError(f"unknown target steps: {sorted(unknown)}")
+
+        target_indexes = [step_indexes[step_id] for step_id in plan.target_steps]
+        first_target_index = min(target_indexes)
+        last_target_index = max(target_indexes)
+        before_probe_id, after_probe_id = _resolve_probe_ids(
+            plan, runtime.workflow, first_target_index
+        )
+        before_state: dict[str, Any] = {}
+        after_state: dict[str, Any] = {}
+        lab_events: list[dict[str, Any]] = []
+        intermediate_states: list[dict[str, Any]] = []
+
+        for step in runtime.workflow.steps[:first_target_index]:
+            record = await runtime.execute_step(step)
+            if (before_probe_id is not None and step.id == before_probe_id) or (
+                before_probe_id is None and _fallback_is_before_probe(step)
+            ):
+                before_state = _json_object(record.body_preview)
+
+        offsets_ms = plan.schedule.offsets_ms or [0.0] * plan.schedule.concurrency
+        if len(offsets_ms) != len(plan.target_steps):
+            raise PluginError("parallel-step-race must provide one offset per target step")
+        _enforce_request_limit(len(plan.target_steps), plan.schedule.options)
+        targets = [_with_bound_session(step_by_id[step_id], plan) for step_id in plan.target_steps]
+
+        async def run_one(index: int, target: RequestStep, offset_ms: float) -> ResponseRecord:
+            if offset_ms > 0:
+                await asyncio.sleep(offset_ms / 1000)
+            return await runtime.execute_step(target, request_ordinal=index)
+
+        target_records = list(
+            await asyncio.gather(
+                *(
+                    run_one(index, target, offset)
+                    for index, (target, offset) in enumerate(
+                        zip(targets, offsets_ms, strict=True)
+                    )
+                )
+            )
+        )
+
+        target_id_set = set(plan.target_steps)
+        for step in runtime.workflow.steps[last_target_index + 1 :]:
+            if step.id in target_id_set:
+                continue
+            record = await runtime.execute_step(step)
+            if (after_probe_id is not None and step.id == after_probe_id) or (
+                after_probe_id is None and _fallback_is_after_probe(step)
+            ):
+                after_state = _json_object(record.body_preview)
+
+        if not after_state and "run_id" in runtime.variables:
+            probe = await _read_state(
+                runtime, targets[0], step_id="state-after-fallback", request_ordinal=0
+            )
+            if probe is not None:
+                after_state = _json_object(probe.body_preview)
+
+        events_record = await _try_read_lab_events(runtime, targets[0])
         if events_record is not None:
             lab_events = _json_object(events_record.body_preview).get("events", [])
             if not isinstance(lab_events, list):
@@ -465,6 +581,64 @@ def _string_list(value: Any) -> list[str]:
     return [str(value)]
 
 
+
+def _validate_skip_steps(
+    plan: AttackPlan,
+    step_by_id: dict[str, RequestStep],
+    step_indexes: dict[str, int],
+    target_id: str,
+    skip_steps: set[str],
+) -> None:
+    if plan.attack_type == "step-skip" and not skip_steps:
+        raise PluginError("step-skip attack plans must set schedule.options.skip_steps")
+
+    unknown = skip_steps - set(step_by_id)
+    if unknown:
+        raise PluginError(f"skip_steps references unknown steps: {sorted(unknown)}")
+    if target_id in skip_steps:
+        raise PluginError("skip_steps must not include the target step")
+
+    target_index = step_indexes[target_id]
+    for step_id in sorted(skip_steps):
+        if step_indexes[step_id] >= target_index:
+            raise PluginError("skip_steps must precede the target step")
+        if plan.attack_type == "step-skip" and step_by_id[step_id].role != StepRole.ACTION:
+            raise PluginError("step-skip can only skip action precondition steps")
+
+    skipped_variables = {
+        extractor.name for step_id in skip_steps for extractor in step_by_id[step_id].extract
+    }
+    target_variables = _referenced_variables(step_by_id[target_id])
+    blocked = skipped_variables & target_variables
+    if blocked:
+        raise PluginError(
+            "step-skip target request depends on variables produced by skipped steps: "
+            f"{sorted(blocked)}"
+        )
+
+
+def _referenced_variables(step: RequestStep) -> set[str]:
+    strings = _collect_strings(step.request.model_dump(mode="python"))
+    return {match.group(1) for text in strings for match in TEMPLATE_PATTERN.finditer(text)}
+
+
+def _collect_strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        found: list[str] = []
+        for key, item in value.items():
+            found.extend(_collect_strings(key))
+            found.extend(_collect_strings(item))
+        return found
+    if isinstance(value, (list, tuple)):
+        found = []
+        for item in value:
+            found.extend(_collect_strings(item))
+        return found
+    return []
+
+
 def _select_value(state: dict[str, Any], selector: str) -> Any:
     """Resolve a simple JSONPath-like selector such as ``$.discount_yuan``."""
 
@@ -539,7 +713,7 @@ def _evaluate_invariant_violation(
             return None, {**evidence, "reason": "max_delta parameter missing or non-numeric"}
         if before_value is None and after_value is None:
             return None, {**evidence, "reason": "selector values unavailable"}
-        # Missing before (e.g. skipped probe) → treat as 0 only when after is numeric.
+        # Missing before (e.g. skipped probe) 鈫?treat as 0 only when after is numeric.
         start: float = float(before_value) if _is_numeric(before_value) else 0.0
         if not _is_numeric(after_value):
             return None, {**evidence, "reason": "after value not numeric"}
@@ -677,9 +851,60 @@ def _summarize(
         plan.attack_type == "run-eviction-pressure"
         and any(record.status_code == 404 for record in target_records)
     )
+    before_balance = before_state.get("balance_cents")
+    after_balance = after_state.get("balance_cents", before_balance)
+    balance_delta = (
+        after_balance - before_balance
+        if _is_numeric(after_balance) and _is_numeric(before_balance)
+        else None
+    )
+    merchant_credit_before = before_state.get("merchant_credit_cents")
+    merchant_credit_after = after_state.get("merchant_credit_cents", merchant_credit_before)
+    merchant_credit_delta = (
+        merchant_credit_after - merchant_credit_before
+        if _is_numeric(merchant_credit_after) and _is_numeric(merchant_credit_before)
+        else None
+    )
+    alice_order = after_state.get("alice_order")
+    if not isinstance(alice_order, dict):
+        alice_order = {}
+    bob_order = after_state.get("bob_order")
+    if not isinstance(bob_order, dict):
+        bob_order = {}
+    bob_paid_by_alice = bob_order.get("bob_paid_by_alice") is True
+    bob_paid_with_alice_token = bob_order.get("bob_paid_with_alice_token") is True
 
     return {
         "attack_type": plan.attack_type,
+        "skipped_steps": _string_list(plan.schedule.options.get("skip_steps", [])),
+        "step_skip_succeeded": (
+            plan.attack_type == "step-skip"
+            and bool(plan.schedule.options.get("skip_steps"))
+            and any(200 <= record.status_code < 300 for record in target_records)
+        ),
+        "confirmed_without_payment": after_state.get("confirmed_without_payment"),
+        "balance_before": before_balance,
+        "balance_after": after_balance,
+        "balance_delta": balance_delta,
+        "successful_withdrawals": after_state.get("successful_withdrawals"),
+        "overdraft_observed": after_state.get("overdraft") is True,
+        "merchant_credit_before": merchant_credit_before,
+        "merchant_credit_after": merchant_credit_after,
+        "merchant_credit_delta": merchant_credit_delta,
+        "payment_apply_count": after_state.get("payment_apply_count"),
+        "duplicate_callback_observed": after_state.get("duplicate_callback_observed") is True,
+        "refunded_and_fulfilled": after_state.get("refunded_and_fulfilled") is True,
+        "refund_count": after_state.get("refund_count"),
+        "fulfill_count": after_state.get("fulfill_count"),
+        "alice_order_status": alice_order.get("payment_status"),
+        "bob_order_status": bob_order.get("payment_status"),
+        "bob_paid_by": bob_order.get("paid_by"),
+        "bob_payment_token_owner": bob_order.get("payment_token_owner"),
+        "bob_payment_token_order_id": bob_order.get("payment_token_order_id"),
+        "bob_paid_by_alice": bob_paid_by_alice,
+        "bob_paid_with_alice_token": bob_paid_with_alice_token,
+        "unauthorized_payment_observed": bob_paid_by_alice,
+        "binding_mismatch_observed": bob_paid_with_alice_token,
         "target_status_codes": [record.status_code for record in target_records],
         "target_request_count": len(target_records),
         "discount_before": before_discount,
@@ -699,4 +924,14 @@ def _summarize(
         "checked_events": event_kinds.count("coupon.checked"),
         "committed_events": event_kinds.count("coupon.committed"),
         "rejected_events": event_kinds.count("coupon.rejected"),
+        "withdraw_checked_events": event_kinds.count("withdraw.checked"),
+        "withdraw_committed_events": event_kinds.count("withdraw.committed"),
+        "withdraw_rejected_events": event_kinds.count("withdraw.rejected"),
+        "callback_checked_events": event_kinds.count("payment.callback.checked"),
+        "callback_committed_events": event_kinds.count("payment.callback.committed"),
+        "callback_rejected_events": event_kinds.count("payment.callback.rejected"),
+        "refund_committed_events": event_kinds.count("refund.committed"),
+        "fulfill_committed_events": event_kinds.count("fulfill.committed"),
+        "refund_rejected_events": event_kinds.count("refund.rejected"),
+        "fulfill_rejected_events": event_kinds.count("fulfill.rejected"),
     }

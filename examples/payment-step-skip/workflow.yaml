@@ -1,0 +1,80 @@
+schema_version: "0.1"
+name: payment-step-skip-demo
+description: Normal order flow where confirmation should require the payment step.
+base_url: http://127.0.0.1:8090
+sessions:
+  alice:
+    schema_version: "0.1"
+    headers:
+      User-Agent: StateBreaker-Lab/0.1
+    cookies: {}
+    follow_redirects: true
+variables:
+  item: DADA Security Lab Ticket
+steps:
+  - schema_version: "0.1"
+    id: create-order
+    role: setup
+    session: alice
+    request:
+      schema_version: "0.1"
+      method: POST
+      path: /api/orders
+      headers: {}
+      query: {}
+      json_body:
+        item: ${item}
+    extract:
+      - schema_version: "0.1"
+        name: order_id
+        kind: jsonpath
+        expression: $.order_id
+    depends_on: []
+    tags: [lab, reset]
+
+  - schema_version: "0.1"
+    id: state-before
+    role: probe
+    session: alice
+    request:
+      schema_version: "0.1"
+      method: GET
+      path: /api/orders/${order_id}/state
+    depends_on: [create-order]
+    tags: [state, before]
+
+  - schema_version: "0.1"
+    id: pay-order
+    role: action
+    session: alice
+    request:
+      schema_version: "0.1"
+      method: POST
+      path: /api/orders/${order_id}/pay
+      json_body: {}
+    depends_on: [state-before]
+    tags: [payment, precondition]
+
+  - schema_version: "0.1"
+    id: confirm-order
+    role: action
+    session: alice
+    request:
+      schema_version: "0.1"
+      method: POST
+      path: /api/orders/${order_id}/confirm
+      json_body: {}
+    depends_on: [pay-order]
+    tags: [attack-target, step-skip, confirmation]
+
+  - schema_version: "0.1"
+    id: state-after
+    role: probe
+    session: alice
+    request:
+      schema_version: "0.1"
+      method: GET
+      path: /api/orders/${order_id}/state
+    depends_on: [confirm-order]
+    tags: [state, after]
+state_probe_steps: [state-before, state-after]

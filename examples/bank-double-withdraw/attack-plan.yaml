@@ -1,0 +1,29 @@
+schema_version: "0.1"
+id: bank-race.withdraw-cash.account-balance-never-negative.simultaneous-c2
+workflow_name: bank-double-withdraw-demo
+attack_type: concurrent-replay
+target_steps: [withdraw-cash]
+session_bindings:
+  withdraw-cash: alice
+schedule:
+  schema_version: "0.1"
+  concurrency: 2
+  offsets_ms: [0, 0]
+  options:
+    strategy: simultaneous
+    max_attempts: 1
+    hard_concurrency_limit: 2
+    required_executor_capability: concurrent-replay
+invariant_ids: [account-balance-never-negative]
+metadata:
+  lab: bank-double-withdraw
+  purpose: Run two simultaneous full-balance withdrawals against one account.
+  invariant:
+    id: account-balance-never-negative
+    kind: min-value
+    selector: $.balance_cents
+    before_probe: state-before
+    after_probe: state-after
+    parameters:
+      min_value: 0
+    description: Bank account balance must never become negative after withdrawals.

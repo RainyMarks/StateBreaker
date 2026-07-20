@@ -1,0 +1,31 @@
+schema_version: "0.1"
+id: step-skip.confirm-order.payment-required-before-confirm.skip-pay-order
+workflow_name: payment-step-skip-demo
+attack_type: step-skip
+target_steps: [confirm-order]
+session_bindings:
+  confirm-order: alice
+schedule:
+  schema_version: "0.1"
+  concurrency: 1
+  offsets_ms: [0]
+  options:
+    strategy: single-target
+    skip_steps: [pay-order]
+    hard_request_limit: 1
+    required_executor_capability: step-skip
+invariant_ids: [payment-required-before-confirm]
+metadata:
+  lab: payment-step-skip
+  skipped_step: pay-order
+  purpose: Confirm an order without executing the payment step.
+  invariant:
+    id: payment-required-before-confirm
+    kind: state-transition
+    selector: $.confirmed_without_payment
+    before_probe: state-before
+    after_probe: state-after
+    parameters:
+      from: false
+      to: false
+    description: An order must never become confirmed while payment_status is still UNPAID.
