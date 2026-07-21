@@ -4,16 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "statebreaker"
-version = "0.1.0"
-description = "Extensible workflow and state-evidence skeleton for authorized business-logic security testing"
+version = "0.2.0"
+description = "Trace-driven black-box race condition discovery for authorized security testing"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "anyio>=4.4,<5",
+  "h11>=0.14,<1",
+  "h2>=4.1,<5",
   "httpx>=0.27,<1",
   "jsonpath-ng>=1.6,<2",
   "pydantic>=2.8,<3",
   "PyYAML>=6,<7",
   "typer>=0.12,<1",
+  "websockets>=12,<16",
 ]
 
 [project.optional-dependencies]
@@ -22,13 +26,14 @@ dev = [
   "mypy>=1.11,<2",
   "pytest>=8,<9",
   "pytest-asyncio>=0.24,<2",
+  "pytest-timeout>=2.3,<3",
   "ruff>=0.6,<1",
   "types-PyYAML>=6,<7",
   "uvicorn>=0.30,<1",
 ]
 
 [project.scripts]
-statebreaker = "statebreaker.cli:main"
+statebreaker = "statebreaker.cli.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -39,7 +44,9 @@ statebreaker = ["py.typed"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 asyncio_mode = "auto"
-testpaths = ["tests", "labs/coupon-race/tests"]
+testpaths = ["tests"]
+timeout = 120
+pythonpath = ["src", "tests"]
 
 [tool.ruff]
 line-length = 100
@@ -52,3 +59,8 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 python_version = "3.11"
 strict = true
 packages = ["statebreaker"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["jsonpath_ng.*", "h2.*", "h11.*"]
+ignore_missing_imports = true

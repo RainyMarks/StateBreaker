@@ -1,101 +1,80 @@
 # StateBreaker 架构说明
 
-## 1. 设计目标
-
-StateBreaker 核心提供“版本化数据契约 + HTTP 运行时 + 插件总线 + CLI 编排”，而不是
-把所有安全算法写在一个包里。不同组员可以独立开发同一阶段的不同实现，也可以各自负责
-不同阶段；核心按 Entry Point 自动发现插件。
+这份文档给新手看整体流程。先不用理解每个函数，只要抓住一条主线：
 
 ```text
-HAR / YAML / proxy output
-          │
-       capture
-          ▼
-       Workflow ───── learner ─────> LearningResult
-          │                              │
-          └──────── generator <── Invariant[]
-                         ▼
-                    AttackPlan[]
-                         │ explicit select
-                         ▼
-                     AttackPlan
-                         │
-                      executor
-                         ▼
-                  RawAttackResult
-                         │
-                      verifier
-                         ▼
-                      Finding[]
-                         │ + Workflow + AttackPlan + Result
-                         ▼
-                      RunBundle ── reporter ──> PDF/JSON
+Recorded normal flow
+  -> dependency graph
+  -> baseline profile
+  -> race candidates
+  -> attack plans
+  -> control/attack trials
+  -> findings and reports
 ```
 
-## 2. 核心代码边界
+## 一次扫描怎么走
 
-`src/statebreaker` 当前包含：
-
-| 文件 | 职责 |
-|---|---|
-| `models.py` | 所有跨插件公共模型和 `schema_version=0.1` |
-| `runtime.py` | HTTP 会话、Cookie、模板变量、Extractor、脱敏事件日志 |
-| `plugins.py` | Protocol、manifest、Entry Point 发现、冲突和 API 检查 |
-| `pipeline.py` | CI/批量模式的 generate→execute→verify→report 编排 |
-| `documents.py` | YAML/JSON 读取、Pydantic 校验和确定性 JSON 写入 |
-| `cli.py` | 分阶段命令、输入输出校验、详细过程显示和稳定退出码 |
-
-核心 runtime 只负责标准请求管道。并发数、屏障、offset、Last-Byte Gate 等调度算法属于
-executor 插件。这样更换攻击手法时不需要修改核心。
-
-## 3. 两种运行方式
-
-### 人工可检查模式
-
-课堂演示和调试使用独立命令：
-
-```text
-workflow show/replay
-→ invariants show
-→ generate
-→ plans list/select
-→ attack
-→ verify
-→ bundle build
-→ report
+```mermaid
+flowchart TD
+    A["CapturedTrace<br/>正常流量"] --> B["Graph Discovery<br/>规范化、推断变量、构建模板"]
+    B --> C["WorkflowGraph<br/>请求、资源、依赖、探针"]
+    C --> D["Baseline Learning<br/>control、single、sequential"]
+    D --> E["BaselineProfile<br/>正常变化和 learned invariants"]
+    E --> F["Candidate Planning<br/>候选评分和计划生成"]
+    F --> G["Execution<br/>control trial 与 attack trials"]
+    G --> H["Oracle<br/>状态与响应对比"]
+    H --> I["Finding<br/>confirmed/probable/rejected/inconclusive"]
+    I --> J["Reports<br/>PoC、JSON、HTML"]
 ```
 
-计划生成与真实执行分离，避免在测试人员尚未检查并发参数时自动发送请求。
+## 阶段说明
 
-### 自动化模式
+| 阶段 | 做什么 | 主要输入 | 主要输出 |
+| --- | --- | --- | --- |
+| Capture | 导入正常流程流量 | HAR/Postman/OpenAPI/manual trace | `CapturedTrace` |
+| Graph Discovery | 推断变量流向，构建请求模板和 graph | `CapturedTrace`、project config | `WorkflowGraph`、`RequestTemplate`、`StateProbe` |
+| Baseline Learning | 跑正常实验，学习状态变化和规则 | graph、templates、probes | `BaselineProfile`、baseline trials |
+| Candidate Planning | 找可能 race 的动作并生成执行计划 | graph、baseline effects | `RaceCandidate`、`AttackPlan` |
+| Execution | 执行 control 和 attack 实验 | attack plan、scheduler backend | `ExecutionTrial` |
+| Oracle | 比较顺序执行和并发执行的差异 | control trial、attack trials、invariants | `Finding` |
+| Reporting | 输出可复现证据 | finding、plan、trials | PoC、JSON、HTML |
 
-`statebreaker pipeline run` 为 CI、回归和批处理保留。它调用相同插件和模型，并把完整
-产物写入 `.statebreaker/runs/<run_id>/`，不是另一套算法。
+## 核心模型
 
-## 4. 会话、变量与证据
+- `CapturedTrace`：一段正常流程，是全链路的原始材料。
+- `RequestTemplate`：可重放请求，可能包含 `${variable}` 占位符。
+- `WorkflowGraph`：请求、资源、变量绑定、依赖边和状态探针的图。
+- `BaselineProfile`：正常行为画像，包括 effects 和 learned invariants。
+- `RaceCandidate`：一个“可能发生 race”的假设。
+- `AttackPlan`：把候选变成可执行的并发请求计划。
+- `ExecutionTrial`：一次真实实验，包括 before/after state、responses 和 timeline。
+- `Finding`：最终 verdict，必须引用真实 trial 证据。
 
-- 每个 Workflow session 对应独立 `httpx.AsyncClient` 和 Cookie Jar；
-- `${variable}` 在发送前递归替换；
-- JSONPath/Header/Regex Extractor 将响应值写回 runtime variables；
-- 每个请求记录 correlation ID、step ID、ordinal、UTC 时间和 `monotonic_ns`；
-- Authorization、Cookie、password、token、secret 等字段写入事件日志前会脱敏；
-- executor 返回 before/after 状态，verifier 才负责生成正式 Finding。
+## 推荐入口
 
-## 5. 当前插件
+用户视角先用一键检测，默认入口是：
 
-| 阶段 | plugin_id | 当前能力 |
-|---|---|---|
-| capture | `har.capture` | 离线 HAR 1.2、JSON/Form、认证请求 |
-| learner | `team.delta-learner` | 多样本差分、候选 max-delta/min/state-transition |
-| generator | `team.race-generator` | concurrent/burst/offset 等竞态计划 |
-| executor | `team.race-executor` | 有界并发、时间线和状态证据 |
-| verifier | `team.basic-verifier` | confirmed/probable/rejected |
-| reporter | `team.pdf-reporter` | PDF 和 JSON 摘要 |
+```bash
+statebreaker run --project my-target --proxy-capture
+```
 
-## 6. 版本和失败策略
+`run` 会把项目选择、正常流量录制、discovery 预览、扫描和报告生成串起来。需要逐步确认时使用 `statebreaker wizard`；需要精确控制阶段时，再使用底层命令：
 
-- 核心包版本当前为 `0.1.0`，公共 API 为 `0.1`；
-- plugin manifest 必须声明兼容 API 和唯一 plugin ID；
-- 插件输出返回核心后再次经过 Pydantic 校验；
-- 输入错误退出码 2，插件错误退出码 3，运行时错误退出码 4；
-- 不兼容或缺失插件会明确失败，不生成伪成功产物。
+- `statebreaker discover`：只跑 graph discovery，不执行并发攻击实验。适合先看工具是否理解了正常流。
+- `statebreaker scan`：跑完整链路。只有这里会进入 baseline、planning、execution、oracle 和 reporting。
+
+## 重要边界
+
+- 核心包必须业务无关。业务名只允许在 `labs/` 和测试数据里出现。
+- `CONFIRMED` 不能靠 HTTP 200 判断，必须有真实 trial 和状态证据。
+- scheduler backend 只负责“如何同时释放请求”，不负责判定漏洞。
+- oracle 只负责证据比较和 verdict，不负责生成请求。
+- reporting 只做展示和导出，不改变证据。
+
+## 新手阅读顺序
+
+1. `src/statebreaker/models/`：先看数据结构。
+2. `src/statebreaker/orchestration/stages.py`：看 discover 如何构建 graph。
+3. `src/statebreaker/orchestration/scanner.py`：看 scan 如何串阶段。
+4. `tests/orchestration/test_scanner.py`：看完整验收流程。
+5. `tests/support/flows.py`：看每个 lab 的“正常流程”长什么样。

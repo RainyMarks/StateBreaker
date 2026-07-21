@@ -1,4 +1,4 @@
-"""Typed exceptions shared by the CLI, runtime, and plugins."""
+"""Typed exceptions shared across StateBreaker modules."""
 
 
 class StateBreakerError(Exception):
@@ -9,17 +9,33 @@ class DocumentError(StateBreakerError):
     """A YAML or JSON document could not be loaded or validated."""
 
 
+class ConfigError(StateBreakerError):
+    """The project configuration is invalid or inconsistent."""
+
+
 class TemplateError(StateBreakerError):
     """A request template references a missing or unusable variable."""
 
 
 class ExtractionError(StateBreakerError):
-    """A response extractor could not obtain its required value."""
+    """A value could not be extracted from a response."""
 
 
-class RuntimeRequestError(StateBreakerError):
-    """A shared-runtime HTTP operation failed."""
+class CaptureError(StateBreakerError):
+    """A capture source could not be parsed or executed."""
 
 
-class PluginError(StateBreakerError):
-    """A plugin could not be discovered, validated, or invoked."""
+class ExecutionError(StateBreakerError):
+    """An experiment or attack execution failed."""
+
+
+class BudgetExhaustedError(StateBreakerError):
+    """The scan budget was exhausted before the stage completed."""
+
+
+class ScopeViolationError(StateBreakerError):
+    """A request would leave the configured target scope."""
+
+
+class ArtifactError(StateBreakerError):
+    """An artifact could not be stored, indexed, or loaded."""

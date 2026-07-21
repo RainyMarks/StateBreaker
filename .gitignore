@@ -1,18 +1,41 @@
+# Python bytecode and caches
 __pycache__/
 *.py[cod]
-*.egg-info/
+*$py.class
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.coverage
-htmlcov/
+
+# Virtual environments
 .venv/
 venv/
-dist/
+env/
+
+# Build and packaging output
 build/
-.statebreaker/
-schemas/
-report/
-*.log
+dist/
+*.egg-info/
+
+# Coverage and reports
+.coverage
+coverage.xml
+htmlcov/
+
+# Local environment and secrets
 .env
-.DS_Store
+.env.*
+!.env.example
+
+# Editor and local agent configuration
+.cursor/
+
+# StateBreaker local runtime artifacts
+.statebreaker/
+.statebreaker_misplaced_from_src_backup_*/
+*.har
+
+# Local databases and logs
+*.db
+*.sqlite
+*.sqlite3
+*.log

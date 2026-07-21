@@ -1,9 +1,0 @@
-- schema_version: "0.1"
-  id: coupon-max-delta
-  kind: max-delta
-  selector: $.discount_yuan
-  before_probe: state-before
-  after_probe: state-after
-  parameters:
-    max_delta: 50
-  description: 一张 BUG50 优惠券最多增加 50 元优惠
