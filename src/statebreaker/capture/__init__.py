@@ -1,6 +1,5 @@
 """Capture adapters: HAR, Postman, OpenAPI, HTTP proxy, and browser recording."""
 
-from statebreaker.capture.browser import record_browser_trace
 from statebreaker.capture.har import load_har, parse_har
 from statebreaker.capture.openapi import load_openapi, parse_openapi
 from statebreaker.capture.postman import load_postman, parse_postman
@@ -22,3 +21,11 @@ __all__ = [
     "record_browser_trace",
     "start_http_proxy_recorder",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name == "record_browser_trace":
+        from statebreaker.capture.browser import record_browser_trace
+
+        return record_browser_trace
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -73,6 +73,33 @@ def test_default_capture_identity_headers_seed_primary_session() -> None:
     assert configs["bob"].headers == {}
 
 
+def test_default_capture_cookies_seed_primary_session() -> None:
+    project = ProjectConfig.model_validate(
+        {
+            "project": {"name": "identity", "base_url": LAB_BASE_URL},
+            "sessions": {"alice": {}, "bob": {}},
+        }
+    )
+    trace = CapturedTrace(
+        capture_id="cookie-cap",
+        source="browser",
+        exchanges=[
+            HttpExchange(
+                exchange_id="browser-1",
+                session_id="default",
+                method="POST",
+                url=f"{LAB_BASE_URL}/action",
+                request_headers={"cookie": "PHPSESSID=abc123; lab=securify"},
+            )
+        ],
+    )
+
+    configs = session_configs(project, trace)
+
+    assert configs["alice"].cookies == {"PHPSESSID": "abc123", "lab": "securify"}
+    assert configs["bob"].cookies == {}
+
+
 async def _record_wallet_flow(recorder: FlowRecorder) -> None:
     await recorder.record("POST", "/accounts/alice/deposit", json_body={"amount": 100})
     await recorder.record("GET", "/accounts/alice")

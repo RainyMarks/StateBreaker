@@ -16,11 +16,10 @@ import typer
 from statebreaker.capture import (
     load_har,
     load_postman,
-    record_browser_trace,
     start_http_proxy_recorder,
 )
 from statebreaker.capture.proxy import is_loopback_listen_host
-from statebreaker.cli.common import fail, load_config, open_store
+from statebreaker.cli.common import fail, load_config, open_store, project_dir
 from statebreaker.errors import StateBreakerError
 from statebreaker.i18n import bi
 from statebreaker.models.capture import CapturedTrace, HttpExchange
@@ -119,10 +118,12 @@ def record_browser_capture(
     capture_id: str | None = None,
     start_url: str | None = None,
     browser_path: str | None = None,
+    fresh_profile: bool = False,
     max_exchanges: int | None = None,
 ) -> CapturedTrace:
     """Record a normal flow from a spawned Chromium-family browser."""
     selected_capture_id = capture_id or _default_browser_capture_id()
+    profile_dir = None if fresh_profile else _browser_profile_dir(project)
     try:
         return anyio.run(
             _record_browser_capture_async,
@@ -130,6 +131,7 @@ def record_browser_capture(
             selected_capture_id,
             start_url,
             browser_path,
+            profile_dir,
             max_exchanges,
         )
     except StateBreakerError:
@@ -177,14 +179,22 @@ async def _record_browser_capture_async(
     capture_id: str,
     start_url: str | None,
     browser_path: str | None,
+    profile_dir: Path | None,
     max_exchanges: int | None,
 ) -> CapturedTrace:
-    _print_browser_setup_instructions(start_url, max_exchanges=max_exchanges)
+    from statebreaker.capture.browser import record_browser_trace
+
+    _print_browser_setup_instructions(
+        start_url,
+        profile_dir=profile_dir,
+        max_exchanges=max_exchanges,
+    )
     return await record_browser_trace(
         capture_id=capture_id,
         project=project,
         start_url=start_url,
         browser_path=browser_path,
+        profile_dir=profile_dir,
         max_exchanges=max_exchanges,
         on_exchange=_print_browser_exchange,
         stop_signal=None if max_exchanges is not None else _wait_for_enter,
@@ -197,6 +207,10 @@ def _default_proxy_capture_id() -> str:
 
 def _default_browser_capture_id() -> str:
     return "browser-" + datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+
+
+def _browser_profile_dir(project: str) -> Path:
+    return project_dir(project) / "browser-profile"
 
 
 def _wait_for_enter() -> None:
@@ -252,18 +266,32 @@ def _print_proxy_setup_instructions(host: str, port: int, *, public_bind: bool) 
 def _print_browser_setup_instructions(
     start_url: str | None,
     *,
+    profile_dir: Path | None,
     max_exchanges: int | None,
 ) -> None:
-    typer.echo(
-        "StateBreaker will open a clean Chromium/Edge window with a temporary profile.  "
-        "(temporary browser profile)"
-    )
+    if profile_dir is None:
+        typer.echo(
+            "StateBreaker will open a clean Chromium/Edge window with a temporary profile.  "
+            "(temporary browser profile)"
+        )
+    else:
+        typer.echo(
+            "StateBreaker will open Chromium/Edge with this project browser profile: "
+            f"{profile_dir}  "
+            f"({bi('会复用登录态和验证码后的 Cookie', 'reuses login cookies after captcha/2FA')})"
+        )
     if start_url:
         typer.echo(f"Start URL: {start_url}")
     typer.echo(
         "Run one authorized normal flow in that window, then return here and press Enter.  "
         "(one authorized normal flow)"
     )
+    if profile_dir is not None:
+        typer.echo(
+            "Pressing Enter closes this recording window, but the browser profile is kept "
+            "for the next capture.  "
+            f"({bi('窗口会关闭，但登录态会保留到下次录制', 'window closes; login state persists')})"
+        )
     if max_exchanges is not None:
         typer.echo(
             f"Recording will stop after {max_exchanges} exchange(s).  "
@@ -466,6 +494,11 @@ def browser_capture(
         "--max-exchanges",
         help="Stop automatically after recording this many HTTP exchanges.",
     ),
+    fresh_profile: bool = typer.Option(
+        False,
+        "--fresh-browser-profile",
+        help="Use a temporary clean browser profile instead of the project profile.",
+    ),
 ) -> None:
     """Record a normal HTTPS-capable browser flow through CDP."""
     try:
@@ -474,6 +507,7 @@ def browser_capture(
             capture_id=capture_id,
             start_url=_default_browser_start_url(project, url),
             browser_path=browser_path,
+            fresh_profile=fresh_profile,
             max_exchanges=max_exchanges,
         )
         save_capture_trace(project, trace)

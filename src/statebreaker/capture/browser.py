@@ -172,6 +172,7 @@ class ExchangeTracker:
 
     def __init__(self) -> None:
         self._pending: dict[str, _PendingExchange] = {}
+        self._extra_request_headers: dict[str, dict[str, str]] = {}
         self.exchanges: list[HttpExchange] = []
         self._counter = 0
 
@@ -189,6 +190,9 @@ class ExchangeTracker:
         url = str(request.get("url", ""))
         if not url.startswith(("http://", "https://")):
             return
+        headers = _headers_to_dict(request.get("headers"))
+        extra_headers = self._extra_request_headers.pop(request_id, {})
+        headers.update(extra_headers)
         wall_time = params.get("wallTime")
         mono_time = params.get("timestamp")
         post_data = request.get("postData")
@@ -196,11 +200,27 @@ class ExchangeTracker:
             request_id=request_id,
             method=str(request.get("method", "GET")).upper(),
             url=url,
-            request_headers=_headers_to_dict(request.get("headers")),
+            request_headers=headers,
             post_data=post_data if isinstance(post_data, str) else None,
             wall_time=float(wall_time) if isinstance(wall_time, (int, float)) else 0.0,
             mono_time=float(mono_time) if isinstance(mono_time, (int, float)) else 0.0,
         )
+
+    def request_will_be_sent_extra_info(self, params: dict[str, Any]) -> None:
+        request_id = str(params.get("requestId", ""))
+        if not request_id:
+            return
+        headers = _headers_to_dict(params.get("headers"))
+        if not headers:
+            return
+        pending = self._pending.get(request_id)
+        if pending is not None:
+            pending.request_headers.update(headers)
+            return
+        self._extra_request_headers[request_id] = {
+            **self._extra_request_headers.get(request_id, {}),
+            **headers,
+        }
 
     def response_received(self, params: dict[str, Any]) -> None:
         pending = self._pending.get(str(params.get("requestId", "")))
@@ -371,6 +391,7 @@ class BrowserRecorder:
         start_url: str | None = None,
         browser_path: str | None = None,
         on_exchange: Callable[[HttpExchange], None] | None = None,
+        profile_dir: str | Path | None = None,
         transport: _CdpTransport | None = None,
         process_launcher: Callable[
             [str, int, str, str | None], _BrowserProcess
@@ -382,6 +403,7 @@ class BrowserRecorder:
         self.start_url = start_url
         self.browser_path = browser_path
         self.on_exchange = on_exchange
+        self._requested_profile_dir = Path(profile_dir) if profile_dir is not None else None
         self._transport = transport
         self._process_launcher = process_launcher
         self._debugger_url_fetcher = debugger_url_fetcher
@@ -390,12 +412,19 @@ class BrowserRecorder:
         self._session_id: str | None = None
         self._process: _BrowserProcess | None = None
         self._profile_dir: str | None = None
+        self._temporary_profile = False
         self._exchange_event = asyncio.Event()
 
     async def start(self) -> None:
         executable = find_browser_executable(self.browser_path)
         port = _free_loopback_port()
-        self._profile_dir = tempfile.mkdtemp(prefix="statebreaker-browser-")
+        if self._requested_profile_dir is None:
+            self._profile_dir = tempfile.mkdtemp(prefix="statebreaker-browser-")
+            self._temporary_profile = True
+        else:
+            self._requested_profile_dir.mkdir(parents=True, exist_ok=True)
+            self._profile_dir = str(self._requested_profile_dir)
+            self._temporary_profile = False
         try:
             self._process = self._process_launcher(
                 executable, port, self._profile_dir, self.start_url
@@ -442,9 +471,11 @@ class BrowserRecorder:
         return str(created.get("result", {}).get("targetId", ""))
 
     async def stop(self) -> CapturedTrace:
+        cookies = await self._snapshot_cookies()
         await self._cleanup()
         self._tracker.finish_all_pending()
         exchanges = sorted(self._tracker.exchanges, key=lambda ex: ex.started_at_ns)
+        _apply_cookie_snapshot(exchanges, cookies)
         return CapturedTrace(
             capture_id=self.capture_id,
             source="browser",
@@ -471,6 +502,8 @@ class BrowserRecorder:
             self._tracker.request_will_be_sent(params)
         elif method == "Network.responseReceived":
             self._tracker.response_received(params)
+        elif method == "Network.requestWillBeSentExtraInfo":
+            self._tracker.request_will_be_sent_extra_info(params)
         elif method == "Network.loadingFinished":
             asyncio.create_task(self._finish_with_body(params))
         elif method == "Network.loadingFailed":
@@ -512,6 +545,25 @@ class BrowserRecorder:
             self.on_exchange(exchange)
         self._exchange_event.set()
 
+    async def _snapshot_cookies(self) -> list[dict[str, Any]]:
+        connection = self._connection
+        if connection is None:
+            return []
+        try:
+            reply = await asyncio.wait_for(
+                connection.command("Network.getAllCookies"),
+                timeout=_NAVIGATE_TIMEOUT_SECONDS,
+            )
+        except (TimeoutError, asyncio.CancelledError, RuntimeError):
+            return []
+        result = reply.get("result")
+        if not isinstance(result, dict):
+            return []
+        cookies = result.get("cookies")
+        if not isinstance(cookies, list):
+            return []
+        return [cookie for cookie in cookies if isinstance(cookie, dict)]
+
     async def _cleanup(self) -> None:
         if self._connection is not None:
             await self._connection.close()
@@ -529,9 +581,10 @@ class BrowserRecorder:
             except Exception:  # noqa: BLE001 - best-effort shutdown
                 pass
             self._process = None
-        if self._profile_dir is not None:
+        if self._profile_dir is not None and self._temporary_profile:
             shutil.rmtree(self._profile_dir, ignore_errors=True)
-            self._profile_dir = None
+        self._profile_dir = None
+        self._temporary_profile = False
 
 
 async def record_browser_trace(
@@ -540,6 +593,7 @@ async def record_browser_trace(
     project: str = "default",
     start_url: str | None = None,
     browser_path: str | None = None,
+    profile_dir: str | Path | None = None,
     max_exchanges: int | None = None,
     on_exchange: Callable[[HttpExchange], None] | None = None,
     stop_signal: Callable[[], Any] | None = None,
@@ -554,6 +608,7 @@ async def record_browser_trace(
         project=project,
         start_url=start_url,
         browser_path=browser_path,
+        profile_dir=profile_dir,
         on_exchange=on_exchange,
     )
     await recorder.start()
@@ -620,3 +675,59 @@ def _origin_of(url: str | None) -> str | None:
     if not parsed.scheme or not parsed.netloc:
         return None
     return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _apply_cookie_snapshot(
+    exchanges: list[HttpExchange],
+    cookies: list[dict[str, Any]],
+) -> None:
+    if not cookies:
+        return
+    for exchange in exchanges:
+        if _has_header(exchange.request_headers, "cookie"):
+            continue
+        cookie_header = _cookie_header_for_url(exchange.url, cookies)
+        if cookie_header:
+            exchange.request_headers["cookie"] = cookie_header
+
+
+def _has_header(headers: dict[str, str], wanted: str) -> bool:
+    return any(name.lower() == wanted for name in headers)
+
+
+def _cookie_header_for_url(url: str, cookies: list[dict[str, Any]]) -> str:
+    parsed = urlsplit(url)
+    host = parsed.hostname or ""
+    path = parsed.path or "/"
+    secure_request = parsed.scheme == "https"
+    matches = [
+        cookie
+        for cookie in cookies
+        if _cookie_matches_url(cookie, host=host, path=path, secure_request=secure_request)
+    ]
+    matches.sort(key=lambda cookie: len(str(cookie.get("path") or "/")), reverse=True)
+    pairs = [
+        f"{cookie['name']}={cookie['value']}"
+        for cookie in matches
+        if isinstance(cookie.get("name"), str) and isinstance(cookie.get("value"), str)
+    ]
+    return "; ".join(pairs)
+
+
+def _cookie_matches_url(
+    cookie: dict[str, Any],
+    *,
+    host: str,
+    path: str,
+    secure_request: bool,
+) -> bool:
+    if cookie.get("secure") and not secure_request:
+        return False
+    domain = str(cookie.get("domain") or "").lstrip(".").lower()
+    if not domain:
+        return False
+    host_lower = host.lower()
+    if host_lower != domain and not host_lower.endswith("." + domain):
+        return False
+    cookie_path = str(cookie.get("path") or "/")
+    return path.startswith(cookie_path.rstrip("/") or "/")

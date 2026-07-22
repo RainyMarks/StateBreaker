@@ -554,9 +554,11 @@ def test_wizard_can_record_capture_through_browser(
         capture_id: str | None = None,
         start_url: str | None = None,
         browser_path: str | None = None,
+        fresh_profile: bool = False,
         max_exchanges: int | None = None,
     ) -> CapturedTrace:
         assert browser_path is None
+        assert fresh_profile is False
         assert max_exchanges is None
         calls.append((project, capture_id, start_url))
         return CapturedTrace(
@@ -745,12 +747,14 @@ def test_capture_browser_command_saves_recorded_trace(
         capture_id: str | None = None,
         start_url: str | None = None,
         browser_path: str | None = None,
+        fresh_profile: bool = False,
         max_exchanges: int | None = None,
     ) -> CapturedTrace:
         assert project == "demo"
         assert capture_id == "browser-cap"
         assert start_url == "https://example.test"
         assert browser_path == "C:\\Browser\\msedge.exe"
+        assert fresh_profile is False
         assert max_exchanges == 1
         return CapturedTrace(
             capture_id="browser-cap",

@@ -6,8 +6,13 @@ import base64
 
 import pytest
 
-from statebreaker.capture.browser import ExchangeTracker, find_browser_executable
+from statebreaker.capture.browser import (
+    ExchangeTracker,
+    _apply_cookie_snapshot,
+    find_browser_executable,
+)
 from statebreaker.errors import CaptureError
+from statebreaker.models.capture import HttpExchange
 
 
 def test_browser_tracker_records_json_and_form_exchange() -> None:
@@ -53,6 +58,74 @@ def test_browser_tracker_records_json_and_form_exchange() -> None:
     assert exchange.response_body_encoding == "json"
     assert exchange.started_at_ns == 1_700_000_000_000_000_000
     assert exchange.completed_at_ns == 1_700_000_000_250_000_000
+
+
+def test_browser_tracker_merges_extra_cookie_headers() -> None:
+    tracker = ExchangeTracker()
+
+    tracker.request_will_be_sent(
+        {
+            "requestId": "with-cookie",
+            "timestamp": 10.0,
+            "wallTime": 1_700_000_000.0,
+            "request": {
+                "method": "POST",
+                "url": "https://example.test/api",
+                "headers": {"Content-Type": "application/json"},
+                "postData": "{}",
+            },
+        }
+    )
+    tracker.request_will_be_sent_extra_info(
+        {
+            "requestId": "with-cookie",
+            "headers": {"Cookie": "sid=abc; lab=seven"},
+        }
+    )
+    tracker.response_received(
+        {
+            "requestId": "with-cookie",
+            "response": {"status": 200, "headers": {}, "mimeType": "application/json"},
+        }
+    )
+    exchange = tracker.loading_finished(
+        {"requestId": "with-cookie", "timestamp": 10.1},
+        body="{}",
+        base64_encoded=False,
+    )
+
+    assert exchange is not None
+    assert exchange.request_headers["cookie"] == "sid=abc; lab=seven"
+
+
+def test_browser_cookie_snapshot_backfills_matching_requests() -> None:
+    exchange = HttpExchange(
+        exchange_id="browser-1",
+        method="POST",
+        url="https://example.test/app/action",
+        request_headers={},
+    )
+
+    _apply_cookie_snapshot(
+        [exchange],
+        [
+            {
+                "name": "sid",
+                "value": "abc",
+                "domain": "example.test",
+                "path": "/",
+                "secure": True,
+            },
+            {
+                "name": "other",
+                "value": "ignored",
+                "domain": "other.test",
+                "path": "/",
+            },
+        ],
+    )
+
+    assert exchange.request_headers["cookie"] == "sid=abc"
 
 
 def test_browser_tracker_handles_failed_redirect_and_ignored_urls() -> None:
@@ -123,3 +196,20 @@ def test_find_browser_executable_raises_capture_error(monkeypatch: pytest.Monkey
 
     with pytest.raises(CaptureError):
         find_browser_executable()
+
+
+async def test_browser_recorder_keeps_persistent_profile(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from statebreaker.capture.browser import BrowserRecorder
+
+    profile = tmp_path / "browser-profile"
+    profile.mkdir()
+    marker = profile / "cookie-store"
+    marker.write_text("kept", encoding="utf-8")
+
+    recorder = BrowserRecorder(capture_id="browser-cap", profile_dir=profile)
+    recorder._profile_dir = str(profile)
+    recorder._temporary_profile = False
+
+    await recorder._cleanup()
+
+    assert marker.read_text(encoding="utf-8") == "kept"

@@ -66,6 +66,35 @@ def harvest_session_headers(trace: CapturedTrace) -> dict[str, dict[str, str]]:
     return harvested
 
 
+def harvest_session_cookies(trace: CapturedTrace) -> dict[str, dict[str, str]]:
+    """Recover per-session cookies from captured Cookie request headers."""
+    harvested: dict[str, dict[str, str]] = {}
+    for exchange in trace.exchanges:
+        cookie_header = _header_value(exchange.request_headers, "cookie")
+        if not cookie_header:
+            continue
+        cookies = harvested.setdefault(exchange.session_id, {})
+        cookies.update(_parse_cookie_header(cookie_header))
+    return harvested
+
+
+def _header_value(headers: dict[str, str], wanted: str) -> str | None:
+    for name, value in headers.items():
+        if name.lower() == wanted:
+            return value
+    return None
+
+
+def _parse_cookie_header(header: str) -> dict[str, str]:
+    cookies: dict[str, str] = {}
+    for part in header.split(";"):
+        name, separator, value = part.strip().partition("=")
+        if not separator or not name:
+            continue
+        cookies[name] = value
+    return cookies
+
+
 def build_templates(
     exchanges: list[HttpExchange],
     bindings: list[VariableBinding],

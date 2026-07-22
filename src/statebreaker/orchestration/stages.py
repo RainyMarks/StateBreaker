@@ -19,7 +19,11 @@ from statebreaker.intelligence.probe_discovery import (
     clone_probes_for_sessions,
     discover_probe_candidates,
 )
-from statebreaker.intelligence.templates import build_templates, harvest_session_headers
+from statebreaker.intelligence.templates import (
+    build_templates,
+    harvest_session_cookies,
+    harvest_session_headers,
+)
 from statebreaker.intelligence.workflow_builder import build_graph
 from statebreaker.models.capture import CapturedTrace, RequestTemplate
 from statebreaker.models.execution import ScanBudget
@@ -33,16 +37,27 @@ def session_configs(
     """Configured sessions enriched with identity headers from the capture."""
     configs = dict(project.sessions)
     harvested = harvest_session_headers(trace)
+    harvested_cookies = harvest_session_cookies(trace)
     for session_id, headers in harvested.items():
         config = configs.get(session_id, SessionConfig())
         merged = {**headers, **config.headers}
         configs[session_id] = config.model_copy(update={"headers": merged})
+    for session_id, cookies in harvested_cookies.items():
+        config = configs.get(session_id, SessionConfig())
+        merged = {**cookies, **config.cookies}
+        configs[session_id] = config.model_copy(update={"cookies": merged})
     default_headers = harvested.get("default")
     if default_headers and project.sessions:
         primary = next(iter(project.sessions))
         primary_config = configs.get(primary, SessionConfig())
         if not primary_config.headers:
             configs[primary] = primary_config.model_copy(update={"headers": default_headers})
+    default_cookies = harvested_cookies.get("default")
+    if default_cookies and project.sessions:
+        primary = next(iter(project.sessions))
+        primary_config = configs.get(primary, SessionConfig())
+        if not primary_config.cookies:
+            configs[primary] = primary_config.model_copy(update={"cookies": default_cookies})
     if not configs:
         for session_id in trace.sessions or ["default"]:
             configs.setdefault(session_id, SessionConfig())
