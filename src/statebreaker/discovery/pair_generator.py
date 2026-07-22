@@ -6,6 +6,9 @@ graph distance 2 (spec §9.5); never a cartesian product.
 
 from __future__ import annotations
 
+from typing import Any
+from urllib.parse import urlparse
+
 from statebreaker.baseline.learner import MUTATING_METHODS
 from statebreaker.discovery.candidate_filter import filter_candidates
 from statebreaker.discovery.candidate_ranker import score_action
@@ -98,6 +101,8 @@ def _speculative_candidates(
             continue
         if template.method not in MUTATING_METHODS:
             continue
+        if looks_like_auth_or_bootstrap(template):
+            continue
         score = 1.0
         breakdown = {"mutating_method_signal": 1.0}
         rationale = ["mutating action has no state probe; testing response-only race"]
@@ -127,6 +132,47 @@ def _speculative_candidates(
                 )
             )
     return candidates
+
+
+_AUTH_PATH_MARKERS = (
+    "auth",
+    "login",
+    "signin",
+    "sign-in",
+    "verify",
+    "2fa",
+    "otp",
+    "session",
+)
+_AUTH_BODY_KEYS = {
+    "password",
+    "passcode",
+    "otp",
+    "code",
+    "verification_code",
+    "login_id",
+    "username",
+}
+
+
+def looks_like_auth_or_bootstrap(template: RequestTemplate) -> bool:
+    path = urlparse(template.path_template).path.lower()
+    path_parts = {part for part in path.replace("-", "/").replace("_", "/").split("/") if part}
+    if any(marker in path_parts or marker in path for marker in _AUTH_PATH_MARKERS):
+        return True
+    keys = _body_keys(template.body)
+    if keys & _AUTH_BODY_KEYS:
+        return True
+    return keys == {"uuid"}
+
+
+def _body_keys(value: Any) -> set[str]:
+    if isinstance(value, dict):
+        keys = {str(key).lower() for key in value}
+        for item in value.values():
+            keys.update(_body_keys(item))
+        return keys
+    return set()
 
 
 def _resources_of(graph: WorkflowGraph, template_id: str) -> list[str]:

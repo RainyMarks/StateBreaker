@@ -9,6 +9,7 @@ import httpx
 from statebreaker.artifacts.store import ArtifactStore
 from statebreaker.config.loader import ScopeGuard
 from statebreaker.config.models import ProjectConfig, SessionConfig
+from statebreaker.discovery.pair_generator import looks_like_auth_or_bootstrap
 from statebreaker.execution.client import BudgetTracker, HttpSender
 from statebreaker.execution.reset import ApiResetStrategy
 from statebreaker.execution.sessions import SessionManager
@@ -197,6 +198,7 @@ async def run_discovery(
             template.template_id
             for template in result.templates
             if template.method in {"POST", "PUT", "PATCH", "DELETE"}
+            and not looks_like_auth_or_bootstrap(template)
         )
     shared_resources = sum(
         1

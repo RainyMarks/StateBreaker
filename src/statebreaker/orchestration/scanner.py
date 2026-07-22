@@ -314,16 +314,31 @@ class AutoRaceScanner:
     ) -> list[Finding]:
         findings: list[Finding] = []
         for plan in plans:
-            control = await controller.run_trial(plan, role="control")
+            candidate = self._store.load("candidates", plan.candidate_id, RaceCandidate)
+            try:
+                control = await controller.run_trial(plan, role="control")
+            except StateBreakerError as exc:
+                finding = _failed_plan_finding(candidate, plan, exc)
+                self._store.save("findings", finding.finding_id, finding)
+                findings.append(finding)
+                continue
             self._store.save("trials", control.trial_id, control)
             outcome.trial_ids.append(control.trial_id)
             attacks = []
             for _ in range(repetitions):
-                attack = await controller.run_trial(plan, role="attack")
+                try:
+                    attack = await controller.run_trial(plan, role="attack")
+                except StateBreakerError as exc:
+                    finding = _failed_plan_finding(candidate, plan, exc)
+                    finding.evidence_refs.append(control.trial_id)
+                    self._store.save("findings", finding.finding_id, finding)
+                    findings.append(finding)
+                    break
                 self._store.save("trials", attack.trial_id, attack)
                 outcome.trial_ids.append(attack.trial_id)
                 attacks.append(attack)
-            candidate = self._store.load("candidates", plan.candidate_id, RaceCandidate)
+            if len(attacks) < repetitions:
+                continue
             finding = evaluate_candidate(
                 candidate,
                 profile.invariants,
@@ -517,3 +532,17 @@ class AutoRaceScanner:
                 "plans": outcome.plan_ids,
             },
         )
+
+
+def _failed_plan_finding(
+    candidate: RaceCandidate,
+    plan: AttackPlan,
+    exc: StateBreakerError,
+) -> Finding:
+    return Finding(
+        finding_id=f"finding-{plan.plan_id}",
+        verdict="inconclusive",
+        confidence=0.0,
+        candidate=candidate,
+        explanation=[f"plan execution failed: {exc}"],
+    )

@@ -137,3 +137,41 @@ def test_generate_candidates_respects_max_candidates() -> None:
         max_candidates=3,
     )
     assert len(candidates) == 3
+
+
+def test_speculative_candidates_skip_authentication_posts() -> None:
+    templates = [
+        RequestTemplate(
+            template_id="verify",
+            method="POST",
+            path_template="/verify-2fa",
+            body={"code": "123456"},
+            body_encoding="form",
+        ),
+        RequestTemplate(
+            template_id="login",
+            method="POST",
+            path_template="/login.php",
+            body={"login_id": "user", "password": "secret"},
+            body_encoding="form",
+        ),
+        RequestTemplate(
+            template_id="entry",
+            method="POST",
+            path_template="/",
+            body={"uuid": "abc"},
+            body_encoding="form",
+        ),
+        RequestTemplate(
+            template_id="business",
+            method="POST",
+            path_template="/run",
+            body={"payload": '{"target":"first"}'},
+            body_encoding="form",
+            variant_hints={"body.payload.target": ["first", "second"]},
+        ),
+    ]
+
+    candidates = generate_candidates(_graph([]), templates, [], sessions=["alice"])
+
+    assert [candidate.action_ids for candidate in candidates] == [["business"]]
