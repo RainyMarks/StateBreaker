@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import parse_qsl, urlparse
 
@@ -101,6 +103,7 @@ def build_templates(
 ) -> list[RequestTemplate]:
     """One template per exchange, with consumed values parameterized."""
     producer_lookup: dict[str, HttpExchange] = {e.exchange_id: e for e in exchanges}
+    form_options = _form_options(exchanges)
     variable_for: dict[tuple[str, str], str] = {}
     for binding in bindings:
         variable_for[(binding.producer_exchange_id, binding.producer_selector)] = (
@@ -155,7 +158,77 @@ def build_templates(
                 headers={str(k): str(v) for k, v in headers.items()},
                 body=body,
                 body_encoding=exchange.request_body_encoding,
+                variant_hints=_variant_hints(body, form_options),
                 source_exchange_id=exchange.exchange_id,
             )
         )
     return templates
+
+
+class _SelectOptionParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.options_by_name: dict[str, list[str]] = {}
+        self._select_name: str | None = None
+        self._option_value: str | None = None
+        self._option_text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attr = {name.lower(): value or "" for name, value in attrs}
+        if tag.lower() == "select":
+            self._select_name = attr.get("name") or None
+        elif tag.lower() == "option" and self._select_name:
+            self._option_value = attr.get("value")
+            self._option_text = []
+
+    def handle_data(self, data: str) -> None:
+        if self._option_value is not None:
+            self._option_text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "option" and self._select_name and self._option_value is not None:
+            value = self._option_value or "".join(self._option_text).strip()
+            if value:
+                values = self.options_by_name.setdefault(self._select_name, [])
+                if value not in values:
+                    values.append(value)
+            self._option_value = None
+            self._option_text = []
+        elif tag.lower() == "select":
+            self._select_name = None
+
+
+def _form_options(exchanges: list[HttpExchange]) -> dict[str, list[str]]:
+    options: dict[str, list[str]] = {}
+    for exchange in exchanges:
+        if not isinstance(exchange.response_body, str):
+            continue
+        parser = _SelectOptionParser()
+        parser.feed(exchange.response_body)
+        for name, values in parser.options_by_name.items():
+            existing = options.setdefault(name, [])
+            for value in values:
+                if value not in existing:
+                    existing.append(value)
+    return options
+
+
+def _variant_hints(body: Any, form_options: dict[str, list[str]]) -> dict[str, list[str]]:
+    hints: dict[str, list[str]] = {}
+    if not isinstance(body, dict):
+        return hints
+    for key, value in body.items():
+        if isinstance(value, str):
+            try:
+                decoded = json.loads(value)
+            except json.JSONDecodeError:
+                decoded = None
+            if isinstance(decoded, dict):
+                for nested_key in decoded:
+                    values = form_options.get(str(nested_key))
+                    if values:
+                        hints[f"body.{key}.{nested_key}"] = list(values)
+        values = form_options.get(str(key))
+        if values:
+            hints[f"body.{key}"] = list(values)
+    return hints

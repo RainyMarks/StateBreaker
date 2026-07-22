@@ -125,15 +125,50 @@ def evaluate_candidate(
             explanation.append(f"violated learned rule: {invariant_id}")
     elif response_hits:
         best = response_hits[0]
-        explanation.append(
-            f"{best.comparison.attack_successes} concurrent responses matched the "
-            f"success class vs {best.comparison.control_successes} in the control group"
-        )
+        if (
+            best.comparison.attack_explicit_successes
+            > best.comparison.control_explicit_successes
+        ):
+            explanation.append(
+                f"{best.comparison.attack_explicit_successes} concurrent responses "
+                "carried explicit success markers vs "
+                f"{best.comparison.control_explicit_successes} in the control group"
+            )
+        else:
+            if best.comparison.stale_response_values:
+                path, (control_values, attack_values) = next(
+                    iter(best.comparison.stale_response_values.items())
+                )
+                explanation.append(
+                    f"concurrent responses repeated stale value {path}: "
+                    f"{attack_values} vs sequential control {control_values}"
+                )
+            else:
+                explanation.append(
+                    f"{best.comparison.attack_successes} concurrent responses matched the "
+                    f"success class vs {best.comparison.control_successes} in the control group"
+                )
 
     success_rate = len(state_hits or response_hits) / len(attacks) if attacks else 0.0
+    explicit_response_hits = [
+        e
+        for e in response_hits
+        if e.comparison.attack_explicit_successes
+        > e.comparison.control_explicit_successes
+    ]
 
-    if not usable:
-        verdict: Verdict = "inconclusive"
+    verdict: Verdict
+    if explicit_response_hits:
+        verdict = "confirmed"
+        confidence = min(0.6 + 0.05 * len(explicit_response_hits), 0.9)
+        if not usable:
+            explanation.append("confirmed by explicit application response marker")
+    elif response_hits and not usable:
+        verdict = "probable"
+        confidence = 0.45
+        explanation.append("probable response-only anomaly; no usable state probes")
+    elif not usable:
+        verdict = "inconclusive"
         confidence = 0.2
         explanation.append("no usable state probes; evidence is response-only")
     elif state_hits:

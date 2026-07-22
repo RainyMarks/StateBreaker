@@ -80,4 +80,5 @@ class RequestTemplate(ContractModel):
     headers: dict[str, str] = Field(default_factory=dict)
     body: Any | None = None
     body_encoding: BodyEncoding = "none"
+    variant_hints: dict[str, list[str]] = Field(default_factory=dict)
     source_exchange_id: str | None = None

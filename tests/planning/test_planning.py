@@ -56,6 +56,40 @@ def test_setup_chain_is_the_template_prefix() -> None:
     assert plans[0].setup_action_ids == ["create"]
 
 
+def test_speculative_fixed_request_does_not_replay_unneeded_prefix() -> None:
+    templates = [_template("login"), _template("act")]
+    candidate = _candidate("same_action", ["act"])
+    candidate = candidate.model_copy(update={"candidate_id": "cand-speculative-act"})
+    plans = _synthesize([candidate], templates)
+    assert plans[0].setup_action_ids == []
+
+
+def test_same_action_plan_uses_form_variant_hints() -> None:
+    template = RequestTemplate(
+        template_id="transfer",
+        method="POST",
+        path_template="/run",
+        body={
+            "payload": '{"from":"primary","to":"first","amount":"100"}',
+        },
+        body_encoding="form",
+        variant_hints={"body.payload.to": ["first", "second"]},
+    )
+
+    plans = _synthesize(
+        [_candidate("same_action", ["transfer"])],
+        [template],
+        concurrencies=[2],
+    )
+
+    bodies = [
+        instance.exchange_templates[0].body
+        for instance in plans[0].action_instances
+    ]
+    assert bodies[0] == {"payload": '{"from":"primary","to":"first","amount":"100"}'}
+    assert bodies[1] == {"payload": '{"from":"primary","to":"second","amount":"100"}'}
+
+
 # -- cross user ------------------------------------------------------------------
 
 
@@ -77,7 +111,11 @@ def test_cross_user_plan_needs_two_sessions() -> None:
 
 
 def test_cross_action_plan_combines_two_templates() -> None:
-    templates = [_template("create"), _template("a"), _template("b")]
+    templates = [
+        _template("create"),
+        _template("a", path="/a/${rid}"),
+        _template("b", path="/b/${rid}"),
+    ]
     plans = _synthesize([_candidate("cross_action", ["a", "b"])], templates)
     assert len(plans) == 1
     plan = plans[0]

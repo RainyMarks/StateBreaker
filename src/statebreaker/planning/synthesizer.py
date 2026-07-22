@@ -2,8 +2,21 @@
 
 from __future__ import annotations
 
+import copy
+import json
+from typing import Any
+
 from statebreaker.models.capture import RequestTemplate
 from statebreaker.models.discovery import ActionInstance, AttackPlan, RaceCandidate
+
+_VARIANT_FIELD_HINTS = (
+    "to",
+    "target",
+    "destination",
+    "dest",
+    "recipient",
+    "receiver",
+)
 
 
 def synthesize_plans(
@@ -106,12 +119,13 @@ def _same_action_plans(
     for concurrency in concurrencies:
         if concurrency < 2:
             continue
+        templates = _variant_templates(template, concurrency)
         plans.append(
             AttackPlan(
                 plan_id=f"plan-x{concurrency}-{candidate.candidate_id}",
                 candidate_id=candidate.candidate_id,
                 action_instances=[
-                    _instance(f"inst-{index + 1}", template, session)
+                    _instance(f"inst-{index + 1}", templates[index], session)
                     for index in range(concurrency)
                 ],
                 sessions=[session],
@@ -120,7 +134,9 @@ def _same_action_plans(
                 offsets_ms=offsets_ms or [0.0],
                 reset_strategy=reset_strategy,
                 state_probe_ids=list(probe_ids),
-                setup_action_ids=prefix_by_id.get(template.template_id, []),
+                setup_action_ids=[] if _is_speculative(candidate) else prefix_by_id.get(
+                    template.template_id, []
+                ),
             )
         )
     return plans
@@ -140,3 +156,88 @@ def _prefixes(templates: list[RequestTemplate]) -> dict[str, list[str]]:
     return {
         template.template_id: ordered[:index] for index, template in enumerate(templates)
     }
+
+
+def _is_speculative(candidate: RaceCandidate) -> bool:
+    return candidate.candidate_id.startswith("cand-speculative-")
+
+
+def _variant_templates(template: RequestTemplate, count: int) -> list[RequestTemplate]:
+    field_path = _preferred_variant_field(template)
+    if field_path is None:
+        return [template for _ in range(count)]
+    values = template.variant_hints.get(field_path) or []
+    variants = [template]
+    current = _value_at_path(template.body, field_path)
+    alternate_values = [value for value in values if str(value) != str(current)]
+    for index in range(1, count):
+        if not alternate_values:
+            variants.append(template)
+            continue
+        value = alternate_values[(index - 1) % len(alternate_values)]
+        variants.append(_template_with_variant(template, field_path, value))
+    return variants
+
+
+def _preferred_variant_field(template: RequestTemplate) -> str | None:
+    if not template.variant_hints:
+        return None
+    ranked = sorted(template.variant_hints)
+    for hint in _VARIANT_FIELD_HINTS:
+        for path in ranked:
+            if hint in path.lower().split(".")[-1]:
+                return path
+    return ranked[0]
+
+
+def _template_with_variant(
+    template: RequestTemplate,
+    field_path: str,
+    value: str,
+) -> RequestTemplate:
+    body = copy.deepcopy(template.body)
+    body = _set_value_at_path(body, field_path, value)
+    return template.model_copy(update={"body": body})
+
+
+def _value_at_path(body: Any, field_path: str) -> Any:
+    parts = field_path.split(".")
+    if len(parts) < 2 or parts[0] != "body":
+        return None
+    current = body
+    for index, part in enumerate(parts[1:], start=1):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+        if isinstance(current, str) and index < len(parts) - 1:
+            try:
+                current = json.loads(current)
+            except json.JSONDecodeError:
+                return None
+    return current
+
+
+def _set_value_at_path(body: Any, field_path: str, value: str) -> Any:
+    parts = field_path.split(".")
+    if len(parts) < 2 or parts[0] != "body":
+        return body
+    if len(parts) == 2 and isinstance(body, dict):
+        body[parts[1]] = value
+        return body
+    if len(parts) >= 3 and isinstance(body, dict):
+        container_key = parts[1]
+        encoded = body.get(container_key)
+        if isinstance(encoded, str):
+            try:
+                decoded = json.loads(encoded)
+            except json.JSONDecodeError:
+                return body
+            current: Any = decoded
+            for part in parts[2:-1]:
+                if not isinstance(current, dict):
+                    return body
+                current = current.get(part)
+            if isinstance(current, dict):
+                current[parts[-1]] = value
+                body[container_key] = json.dumps(decoded, separators=(",", ":"))
+    return body

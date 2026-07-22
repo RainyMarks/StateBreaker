@@ -6,6 +6,7 @@ graph distance 2 (spec §9.5); never a cartesian product.
 
 from __future__ import annotations
 
+from statebreaker.baseline.learner import MUTATING_METHODS
 from statebreaker.discovery.candidate_filter import filter_candidates
 from statebreaker.discovery.candidate_ranker import score_action
 from statebreaker.models.capture import RequestTemplate
@@ -66,11 +67,66 @@ def generate_candidates(
             )
 
     candidates.extend(
+        _speculative_candidates(
+            templates,
+            seen_action_ids={
+                action_id
+                for candidate in candidates
+                for action_id in candidate.action_ids
+            },
+            sessions=sessions,
+        )
+    )
+
+    candidates.extend(
         _pair_candidates(graph, worthy, sessions, max_action_pairs)
     )
 
     candidates.sort(key=lambda candidate: candidate.score, reverse=True)
     return candidates[:max_candidates]
+
+
+def _speculative_candidates(
+    templates: list[RequestTemplate],
+    *,
+    seen_action_ids: set[str],
+    sessions: list[str],
+) -> list[RaceCandidate]:
+    candidates: list[RaceCandidate] = []
+    for template in templates:
+        if template.template_id in seen_action_ids:
+            continue
+        if template.method not in MUTATING_METHODS:
+            continue
+        score = 1.0
+        breakdown = {"mutating_method_signal": 1.0}
+        rationale = ["mutating action has no state probe; testing response-only race"]
+        if template.variant_hints:
+            score += 1.0
+            breakdown["form_variant_signal"] = 1.0
+            rationale.append("captured form exposes alternate values for concurrent variants")
+        candidates.append(
+            RaceCandidate(
+                candidate_id=f"cand-speculative-{template.template_id}",
+                kind="same_action",
+                action_ids=[template.template_id],
+                score=score,
+                score_breakdown=breakdown,
+                rationale=rationale,
+            )
+        )
+        if len(sessions) >= 2:
+            candidates.append(
+                RaceCandidate(
+                    candidate_id=f"cand-speculative-cross-user-{template.template_id}",
+                    kind="cross_user",
+                    action_ids=[template.template_id],
+                    score=score + 0.5,
+                    score_breakdown={**breakdown, "cross_user_signal": 1.0},
+                    rationale=[*rationale, "multiple configured identities are available"],
+                )
+            )
+    return candidates
 
 
 def _resources_of(graph: WorkflowGraph, template_id: str) -> list[str]:

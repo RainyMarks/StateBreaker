@@ -55,7 +55,7 @@ class SessionManager:
         client = self._clients.get(session_id)
         if client is None:
             return {}
-        return {name: value for name, value in client.cookies.items()}
+        return _cookie_jar_values(client.cookies)
 
     def session_headers(self, session_id: str) -> dict[str, str]:
         """Everything a request for this identity must carry: default headers
@@ -65,7 +65,7 @@ class SessionManager:
         cookies: dict[str, str] = dict(config.cookies)
         client = self._clients.get(session_id)
         if client is not None:
-            cookies.update({name: value for name, value in client.cookies.items()})
+            cookies.update(_cookie_jar_values(client.cookies))
         if cookies and "cookie" not in {name.lower() for name in headers}:
             headers["Cookie"] = "; ".join(f"{name}={value}" for name, value in cookies.items())
         return headers
@@ -80,3 +80,11 @@ class SessionManager:
 
     async def __aexit__(self, *exc_info: object) -> None:
         await self.aclose()
+
+
+def _cookie_jar_values(cookies: httpx.Cookies) -> dict[str, str]:
+    return {
+        cookie.name: cookie.value
+        for cookie in cookies.jar
+        if cookie.value is not None
+    }

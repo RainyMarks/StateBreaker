@@ -120,6 +120,32 @@ def test_templates_substitute_variables() -> None:
     assert second.body == {"ref": "${uid}", "note": "keep"}
 
 
+def test_templates_harvest_form_variant_hints_from_html() -> None:
+    exchanges = [
+        _exchange(
+            "page",
+            "GET",
+            "http://h/form",
+            response_body=(
+                '<form><select name="target">'
+                '<option value="first">First</option>'
+                '<option value="second">Second</option>'
+                "</select></form>"
+            ),
+        ),
+        _exchange(
+            "submit",
+            "POST",
+            "http://h/run",
+            request_body={"payload": '{"target":"first","amount":"100"}'},
+        ),
+    ]
+
+    templates = build_templates(exchanges, [])
+
+    assert templates[1].variant_hints == {"body.payload.target": ["first", "second"]}
+
+
 def test_iter_json_leaves_paths() -> None:
     leaves = dict(iter_json_leaves({"a": {"b": [1, {"c": "x"}]}}))
     assert leaves == {"$.a.b[0]": 1, "$.a.b[1].c": "x"}

@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import anyio
 import httpx
@@ -91,6 +91,9 @@ class HttpSender:
     def absolute_url(self, path_or_url: str) -> str:
         if path_or_url.startswith("http://") or path_or_url.startswith("https://"):
             return path_or_url
+        if path_or_url.startswith("/"):
+            parsed = urlsplit(self._sessions.base_url)
+            return f"{parsed.scheme}://{parsed.netloc}{path_or_url}"
         return self._sessions.base_url + path_or_url
 
     def session_headers(self, session_id: str) -> dict[str, str]:

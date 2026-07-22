@@ -192,6 +192,12 @@ async def run_discovery(
         and any(probe_index > index for probe_index in probe_indexes)
     ]
     high_risk.extend(fixed_path_high_risk)
+    if not high_risk and not result.probes:
+        high_risk.extend(
+            template.template_id
+            for template in result.templates
+            if template.method in {"POST", "PUT", "PATCH", "DELETE"}
+        )
     shared_resources = sum(
         1
         for resource in result.graph.resources
