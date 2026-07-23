@@ -10,8 +10,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
+from statebreaker.capture.har import load_har
 from statebreaker.errors import StateBreakerError
+from statebreaker.models.capture import HttpExchange
 
 JsonObject = dict[str, Any]
 
@@ -75,6 +78,111 @@ def _load_embedded_code(plan: JsonObject, plan_path: Path) -> str:
     if not isinstance(code, str):
         raise StateBreakerError(f"runner.code_file JSON must contain string field {json_field!r}")
     return code
+
+
+def _form_body(exchange: HttpExchange) -> dict[str, Any] | None:
+    if exchange.request_body_encoding != "form" or not isinstance(exchange.request_body, dict):
+        return None
+    return exchange.request_body
+
+
+def _select_har_template_exchange(trace_exchanges: list[HttpExchange], runner: JsonObject) -> HttpExchange:
+    code_field = str(runner.get("code_field") or "code")
+    payload_field = str(runner.get("payload_field") or "post_data")
+    for exchange in trace_exchanges:
+        body = _form_body(exchange)
+        if exchange.method == "POST" and body and code_field in body and payload_field in body:
+            return exchange
+    for exchange in trace_exchanges:
+        body = _form_body(exchange)
+        if exchange.method == "POST" and body and code_field in body:
+            return exchange
+    raise StateBreakerError(
+        "HAR does not contain a form POST exchange with the configured code/payload fields"
+    )
+
+
+def _safe_url_origin(url: str) -> str:
+    parsed = urlsplit(url)
+    if not parsed.scheme or not parsed.netloc:
+        return url
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+
+
+def _merge_har_evidence(plan: JsonObject, har_path: Path) -> None:
+    """Use HAR as request-shape evidence without copying auth material."""
+    try:
+        trace = load_har(har_path)
+    except Exception as exc:  # noqa: BLE001 - normalize adapter errors at this boundary
+        raise StateBreakerError(f"cannot load HAR evidence {har_path}: {exc}") from exc
+
+    runner = _require_mapping(plan, "runner")
+    template = _select_har_template_exchange(trace.exchanges, runner)
+    body = _form_body(template) or {}
+
+    code_field = str(runner.get("code_field") or "code")
+    action_field = str(runner.get("action_field") or "action")
+    action_value = body.get(action_field)
+    code = body.get(code_field)
+    if isinstance(action_value, str) and action_value:
+        runner["action_value"] = action_value
+    if isinstance(code, str) and code:
+        runner["code"] = code
+        runner.pop("code_file", None)
+        runner.pop("code_json_field", None)
+
+    auth_fields = [
+        key
+        for key in (
+            str(runner.get("token_field") or "csrf_token"),
+            "cookie",
+            "authorization",
+        )
+        if key in body or key in template.request_headers
+    ]
+    plan["har_evidence"] = {
+        "path": str(har_path),
+        "capture_id": trace.capture_id,
+        "exchange_count": len(trace.exchanges),
+        "template_exchange_id": template.exchange_id,
+        "request_method": template.method,
+        "request_url_origin": _safe_url_origin(template.url),
+        "auth_fields_ignored": sorted(set(auth_fields)),
+    }
+
+
+def prepare_browser_context_plan(
+    plan_path: Path,
+    *,
+    har_path: Path | None = None,
+    rounds: int | None = None,
+    start_round: int | None = None,
+    autorun: bool | None = None,
+) -> JsonObject:
+    """Load, validate, and enrich a browser-context plan."""
+    plan = _read_json(plan_path)
+    _validate_plan(plan)
+    if har_path is not None:
+        _merge_har_evidence(plan, har_path)
+
+    runner = _require_mapping(plan, "runner")
+    if not isinstance(runner.get("code"), str):
+        runner["code"] = _load_embedded_code(plan, plan_path)
+    runner.pop("code_file", None)
+    runner.pop("code_json_field", None)
+
+    schedule = _require_mapping(plan, "schedule")
+    if rounds is not None:
+        if rounds <= 0:
+            raise StateBreakerError("rounds must be a positive integer")
+        schedule["rounds"] = rounds
+    if start_round is not None:
+        if start_round <= 0:
+            raise StateBreakerError("start-round must be a positive integer")
+        schedule["start_round"] = start_round
+    if autorun is not None:
+        plan["autorun"] = autorun
+    return plan
 
 
 def _validate_plan(plan: JsonObject) -> None:
@@ -323,12 +431,30 @@ def _browser_runtime_source(plan: JsonObject) -> str:
 """
 
 
-def render_browser_context_executor(plan_path: Path) -> str:
-    """Render a standalone browser-context executor JavaScript program."""
-    plan = _read_json(plan_path)
+def render_browser_context_executor_from_plan(plan: JsonObject) -> str:
+    """Render a standalone browser-context executor from a prepared plan object."""
     _validate_plan(plan)
     runner = _require_mapping(plan, "runner")
-    runner["code"] = _load_embedded_code(plan, plan_path)
-    runner.pop("code_file", None)
-    runner.pop("code_json_field", None)
+    if not isinstance(runner.get("code"), str) or not runner["code"]:
+        raise StateBreakerError("browser-context plan needs embedded runner.code")
     return _browser_runtime_source(plan)
+
+
+def render_browser_context_executor(
+    plan_path: Path,
+    *,
+    har_path: Path | None = None,
+    rounds: int | None = None,
+    start_round: int | None = None,
+    autorun: bool | None = None,
+) -> str:
+    """Render a standalone browser-context executor JavaScript program."""
+    return render_browser_context_executor_from_plan(
+        prepare_browser_context_plan(
+            plan_path,
+            har_path=har_path,
+            rounds=rounds,
+            start_round=start_round,
+            autorun=autorun,
+        )
+    )
