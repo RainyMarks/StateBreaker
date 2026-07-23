@@ -1,0 +1,8 @@
+{
+  "global_invariant": "Savings debited once to 8503.23 while Checking and Daily Transactions were both credited by 100; global total increases by 100.",
+  "request_pair": [
+    "Savings -> Checking amount 100",
+    "Savings -> Daily Transactions amount 100"
+  ],
+  "auth_material_written": "No Cookie header; CSRF redacted in HAR."
+}

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>StateBreaker English Transcript</title>
+<style>
+  body { margin: 0; background: #101828; color: #e5e7eb; font-family: Consolas, "Cascadia Mono", monospace; }
+  .bar { height: 38px; background: #111827; border-bottom: 1px solid #334155; display:flex; align-items:center; gap:8px; padding:0 16px; color:#cbd5e1; font-family: system-ui, sans-serif; }
+  .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .red { background:#ef4444; } .yellow { background:#f59e0b; } .green { background:#22c55e; }
+  pre { margin:0; padding:20px 24px 28px; white-space: pre-wrap; line-height:1.38; font-size:14px; }
+  .prompt { color:#93c5fd; }
+</style>
+</head>
+<body>
+<div class="bar"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><strong>StateBreaker / English mode</strong></div>
+<pre>﻿StateBreaker English-mode transcript
+Target: https://hugh.myddns.me/NU5/aboutus?section=training&amp;lab=securifynu5%7CsecurifyLab7
+Evidence policy: browser-authenticated exploitation; HAR redacts Cookie and CSRF.
+Project: securify7-lab7-evidence-clean
+
+&gt; python -c from statebreaker.cli.app import main; main() --help
+
+ Usage: -c [OPTIONS] COMMAND [ARGS]...
+
+ Trace-driven black-box race condition discovery.
+
++- Options -------------------------------------------------------------------+
+| --help          Show this message and exit.                                 |
++-----------------------------------------------------------------------------+
++- Commands ------------------------------------------------------------------+
+| run          Run project setup, capture, discovery, scan and reports; skips |
+|              confirmations by default.                                      |
+| wizard       Run the guided setup and scan workflow with confirmations.     |
+| discover     Analyze a capture without attacking.                           |
+| scan         Run the automatic race scan; use report or run/wizard to       |
+|              generate reports.                                              |
+| report       Generate PoC and reports for a finding.                        |
+| reproduce    Print the executable PoC for a finding.                        |
+| project      Manage StateBreaker projects.                                  |
+| capture      Capture or import normal-flow traffic.                         |
+| candidates   Inspect discovered race candidates.                            |
+| findings     Inspect scan findings.                                         |
++-----------------------------------------------------------------------------+
+
+&gt; python -c from statebreaker.cli.app import main; main() project init securify7-lab7-evidence-clean --base-url https://hugh.myddns.me
+project initialized at C:\Users\Ra1ny\Desktop\��ս��ͷ\NewState\.statebreaker\projects\securify7-lab7-evidence-clean  (starter project created)
+Next step: import a normal flow, or run `statebreaker run --proxy-capture`.
+
+&gt; python -c from statebreaker.cli.app import main; main() capture import experiments\securify_lab7_evidence\securify7-ex1-browser-evidence.har --project securify7-lab7-evidence-clean --capture-id securify7-ex1-browser-evidence
+imported 2 exchanges as capture &#x27;securify7-ex1-browser-evidence&#x27;  (normal-flow traffic imported)
+
+&gt; Browser-confirmed exploit evidence summary
+{
+  &quot;global_invariant&quot;: &quot;Savings debited once to 8503.23 while Checking and Daily Transactions were both credited by 100; global total increases by 100.&quot;,
+  &quot;request_pair&quot;: [
+    &quot;Savings -&gt; Checking amount 100&quot;,
+    &quot;Savings -&gt; Daily Transactions amount 100&quot;
+  ],
+  &quot;auth_material_written&quot;: &quot;No Cookie header; CSRF redacted in HAR.&quot;
+}
+
+&gt; Visual API evidence
+viz-api shows 4 events and red arrows for interleaved transfer calls after the two-tab race.
+</pre>
+</body>
+</html>

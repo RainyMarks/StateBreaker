@@ -1,0 +1,110 @@
+API Activity
+accountAccessAPI
+Securify 7 — Exercise 7.1 — Race Condition in Money Transfer
+Flow View
+Transaction View
+🗑
+4 events
+t (s)
+Application
+accountAccessAPI
+(banking.example.com)
+Account Database
+Money Laundering API
+(aml-api.example.com)
+</>
+0.000000
+ACC
+0.000349
+REQUEST {"_url":"POST https://banking.example.com/api/transfer","de…
+ACC
+0.000501
+DB QUERY SELECT balance FROM bank_accounts WHERE name='Checking'
+ACC
+DB RESULT balance = 8.67
+</>
+0.278489
+ACC
+0.278856
+REQUEST {"_url":"POST https://banking.example.com/api/transfer","de…
+ACC
+0.279010
+DB QUERY SELECT balance FROM bank_accounts WHERE name='Checking'
+ACC
+DB RESULT balance = 8.67
+</>
+47.009647
+ACC
+47.010006
+REQUEST {"_url":"POST https://banking.example.com/api/transfer","de…
+ACC
+47.010159
+DB QUERY SELECT balance FROM bank_accounts WHERE name='Savings'
+ACC
+47.010218
+DB RESULT balance = 8603.23
+MON
+AML CALL {"_url":"POST https://aml-api.example.com/v1/screen","detai…
+</>
+47.154217
+ACC
+47.154572
+REQUEST {"_url":"POST https://banking.example.com/api/transfer","de…
+ACC
+47.154911
+DB QUERY SELECT balance FROM bank_accounts WHERE name='Savings'
+ACC
+47.154979
+DB RESULT balance = 8603.23
+MON
+AML CALL {"_url":"POST https://aml-api.example.com/v1/screen","detai…
+MON
+48.155585
+ACC
+48.155757
+AML RESULT OK
+ACC
+48.155808
+DB QUERY UPDATE bank_accounts SET balance=8503.23 WHERE id=1
+ACC
+48.155857
+DB RESULT OK
+ACC
+48.155946
+DB QUERY SELECT balance FROM bank_accounts WHERE name='Checking'
+ACC
+48.156054
+DB RESULT balance = 8.67
+ACC
+48.156104
+DB QUERY UPDATE bank_accounts SET balance=108.67 WHERE id=3
+ACC
+48.156149
+DB RESULT OK
+</>
+RESPONSE Transfer complete
+MON
+48.578770
+ACC
+48.578972
+AML RESULT OK
+ACC
+48.579031
+DB QUERY UPDATE bank_accounts SET balance=8503.23 WHERE id=1
+ACC
+48.579080
+DB RESULT OK
+ACC
+48.579180
+DB QUERY SELECT balance FROM bank_accounts WHERE name='Daily Transac…
+ACC
+48.579294
+DB RESULT balance = 3445.47
+ACC
+48.579344
+DB QUERY UPDATE bank_accounts SET balance=3545.47 WHERE id=2
+ACC
+48.579391
+DB RESULT OK
+</>
+RESPONSE Transfer complete

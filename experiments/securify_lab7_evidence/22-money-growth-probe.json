@@ -1,0 +1,36 @@
+{
+  "probes": [
+    {
+      "text": "Initial Savings balance:            $851.23\nInitial Checking balance:           $108.67\nInitial Total Balance:              $959.90\nTransferring                        $1.00\nFinal Savings balance:              $850.23\nFinal Checking balance:             $109.67\nFinal Total Balance:                $959.90\n",
+      "ok": true,
+      "insufficient": false,
+      "initialSource": 851.23,
+      "finalSource": 850.23,
+      "initialDest": 108.67,
+      "finalDest": 109.67
+    },
+    {
+      "text": "Initial Daily Transactions balance: $11,197.47\nInitial Savings balance:            $850.23\nInitial Total Balance:              $12,047.70\nTransferring                        $1.00\nFinal Daily Transactions balance:   $11,196.47\nFinal Savings balance:              $851.23\nFinal Total Balance:                $12,047.70\n",
+      "ok": true,
+      "insufficient": false,
+      "initialSource": 11197.47,
+      "finalSource": 11196.47,
+      "initialDest": 850.23,
+      "finalDest": 851.23
+    },
+    {
+      "text": "Initial Checking balance:           $109.67\nInitial Daily Transactions balance: $11,196.47\nInitial Total Balance:              $11,306.14\nTransferring                        $1.00\nFinal Checking balance:             $108.67\nFinal Daily Transactions balance:   $11,197.47\nFinal Total Balance:                $11,306.14\n",
+      "ok": true,
+      "insufficient": false,
+      "initialSource": 109.67,
+      "finalSource": 108.67,
+      "initialDest": 11196.47,
+      "finalDest": 11197.47
+    }
+  ],
+  "balances": {
+    "Savings": 851.23,
+    "Checking": 108.67,
+    "Daily Transactions": 11197.47
+  }
+}

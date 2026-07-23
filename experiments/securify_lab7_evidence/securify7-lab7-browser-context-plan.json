@@ -1,0 +1,58 @@
+{
+  "schema_version": "0.1",
+  "name": "securify7-lab7-browser-context-output-flood",
+  "target": {
+    "url": "https://hugh.myddns.me/NU5/aboutus?section=training&lab=securifynu5%7CsecurifyLab7",
+    "viz_url": "https://hugh.myddns.me/NU5/viz-api?key=securify7Ex1&t=df212df7d02f7fe5372472fa",
+    "authorization": "Teacher NU5 training lab only"
+  },
+  "autorun": true,
+  "selectors": {
+    "root": "[data-ssp-playpen=\"securify7-sspx\"]",
+    "output": "[data-ssp-output=\"securify7-sspx\"]"
+  },
+  "runner": {
+    "token_selector": "input[name=\"csrf_token\"]",
+    "token_field": "csrf_token",
+    "action_field": "action",
+    "action_value": "ssp_run",
+    "exercise_field": "exercise_id",
+    "code_field": "ssp_code",
+    "payload_field": "ssp_post_data",
+    "tab_id_field": "tab_id",
+    "run_url_attribute": "data-ssp-run-url",
+    "exercise_attribute": "data-ssp-playpen",
+    "code_file": "ex1-browser-context.json",
+    "code_json_field": "code"
+  },
+  "fields": {
+    "source": "from_account",
+    "destination": "to_account",
+    "amount": "amount"
+  },
+  "schedule": {
+    "strategy": "highest_balance_90_percent_integer",
+    "rounds": 40,
+    "start_round": 99,
+    "accounts": [
+      "Savings",
+      "Checking",
+      "Daily Transactions"
+    ],
+    "initial_balances": {
+      "Savings": "$10,732,429,988,398,999,552.00",
+      "Checking": "$103,603,494,460,559,998,976.00",
+      "Daily Transactions": "$164,277,268,967,530,004,480.00"
+    }
+  },
+  "display": {
+    "output_flood": true,
+    "live_update": true,
+    "recent_rows": 40,
+    "font_size": "20px",
+    "min_height": "820px",
+    "max_height": "980px",
+    "scroll_to_bottom": true,
+    "currency_symbol": "$"
+  }
+}

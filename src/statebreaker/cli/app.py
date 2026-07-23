@@ -4,7 +4,17 @@ from __future__ import annotations
 
 import typer
 
-from statebreaker.cli import candidates, capture, discover, findings, project, report, scan, wizard
+from statebreaker.cli import (
+    browser_context,
+    candidates,
+    capture,
+    discover,
+    findings,
+    project,
+    report,
+    scan,
+    wizard,
+)
 from statebreaker.i18n import bi
 
 app = typer.Typer(
@@ -15,6 +25,7 @@ app = typer.Typer(
 )
 app.add_typer(project.app, name="project")
 app.add_typer(capture.app, name="capture")
+app.add_typer(browser_context.app, name="browser-context")
 app.add_typer(candidates.app, name="candidates")
 app.add_typer(findings.app, name="findings")
 app.command(

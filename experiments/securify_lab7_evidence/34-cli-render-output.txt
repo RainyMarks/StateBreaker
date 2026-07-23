@@ -1,0 +1,2 @@
+﻿browser-context executor: experiments\securify_lab7_evidence\statebreaker-securify7-browser-context-executor.js
+next step: run the generated JavaScript only inside an authorized authenticated browser page for this plan.

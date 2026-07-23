@@ -1,0 +1,13 @@
+﻿{
+    "code":  "$db     = new SQLite3(SSP_DB);\n$from   = trim($_POST[\u0027from_account\u0027] ?? \u0027\u0027);\n$to     = trim($_POST[\u0027to_account\u0027]   ?? \u0027\u0027);\n$amount = (float)($_POST[\u0027amount\u0027]    ?? 0);\n\nif ($from === \u0027\u0027 || $to === \u0027\u0027 || $amount \u003c= 0 || $from === $to) { exit; }\n\n// Read source balance; stop if funds are insufficient\n$row_from = readBalance($db, $from);\nif (!$row_from || $row_from[\u0027balance\u0027] \u003c $amount) { echo \"Insufficient funds in $from.\\n\"; exit; }\n\n// AML compliance check (~4 s); stop if not approved\n$status = moneyLaunderingAPI($amount, $from, $to, $row_from[\u0027customer_id\u0027]);\nif ($status !== \u0027OK\u0027) { echo \"Transfer rejected by AML check.\\n\"; exit; }\n\n// Debit source using balance read before the AML call; stale if concurrent transfer ran\nwriteBalance($db, (int)$row_from[\u0027id\u0027], $row_from[\u0027balance\u0027] - $amount);\n\n// Credit destination\n$row_to = readBalance($db, $to);\nif (!$row_to) { exit; }\nwriteBalance($db, (int)$row_to[\u0027id\u0027], $row_to[\u0027balance\u0027] + $amount);",
+    "csrf":  "REDACTED_BROWSER_CSRF",
+    "exerciseId":  "securify7-sspx",
+    "pageUrl":  "https://hugh.myddns.me/NU5/aboutus?section=training\u0026lab=securifynu5%7CsecurifyLab7",
+    "postData":  {
+                     "amount":  "100",
+                     "from_account":  "Checking",
+                     "to_account":  "Savings"
+                 },
+    "runUrl":  "/NU5/aboutus?id=securifyLab7\u0026course=securifynu5\u0026t=df212df7d02f7fe5372472fa\u0026section=training\u0026lab=securifynu5%7CsecurifyLab7",
+    "token":  ""
+}

@@ -1,0 +1,25 @@
+
+ Usage: statebreaker [OPTIONS] COMMAND [ARGS]...
+
+ Trace-driven black-box race condition discovery.
+
++- Options -------------------------------------------------------------------+
+| --help          Show this message and exit.                                 |
++-----------------------------------------------------------------------------+
++- Commands ------------------------------------------------------------------+
+| run               Run project setup, capture, discovery, scan and reports;  |
+|                   skips confirmations by default.                           |
+| wizard            Run the guided setup and scan workflow with               |
+|                   confirmations.                                            |
+| discover          Analyze a capture without attacking.                      |
+| scan              Run the automatic race scan; use report or run/wizard to  |
+|                   generate reports.                                         |
+| report            Generate PoC and reports for a finding.                   |
+| reproduce         Print the executable PoC for a finding.                   |
+| project           Manage StateBreaker projects.                             |
+| capture           Capture or import normal-flow traffic.                    |
+| browser-context   Render an authenticated browser-context executor for an   |
+|                   authorized plan.                                          |
+| candidates        Inspect discovered race candidates.                       |
+| findings          Inspect scan findings.                                    |
++-----------------------------------------------------------------------------+

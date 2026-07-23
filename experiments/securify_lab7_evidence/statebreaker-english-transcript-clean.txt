@@ -1,0 +1,48 @@
+StateBreaker English-mode transcript
+Target: https://hugh.myddns.me/NU5/aboutus?section=training&lab=securifynu5%7CsecurifyLab7
+Evidence policy: browser-authenticated exploitation; HAR redacts Cookie and CSRF.
+Project: securify7-lab7-evidence-clean
+
+> python -c from statebreaker.cli.app import main; main() --help
+
+ Usage: -c [OPTIONS] COMMAND [ARGS]...
+
+ Trace-driven black-box race condition discovery.
+
++- Options -------------------------------------------------------------------+
+| --help          Show this message and exit.                                 |
++-----------------------------------------------------------------------------+
++- Commands ------------------------------------------------------------------+
+| run          Run project setup, capture, discovery, scan and reports; skips |
+|              confirmations by default.                                      |
+| wizard       Run the guided setup and scan workflow with confirmations.     |
+| discover     Analyze a capture without attacking.                           |
+| scan         Run the automatic race scan; use report or run/wizard to       |
+|              generate reports.                                              |
+| report       Generate PoC and reports for a finding.                        |
+| reproduce    Print the executable PoC for a finding.                        |
+| project      Manage StateBreaker projects.                                  |
+| capture      Capture or import normal-flow traffic.                         |
+| candidates   Inspect discovered race candidates.                            |
+| findings     Inspect scan findings.                                         |
++-----------------------------------------------------------------------------+
+
+> python -c from statebreaker.cli.app import main; main() project init securify7-lab7-evidence-clean --base-url https://hugh.myddns.me
+project initialized at C:\Users\Ra1ny\Desktop\��ս��ͷ\NewState\.statebreaker\projects\securify7-lab7-evidence-clean  (starter project created)
+Next step: import a normal flow, or run `statebreaker run --proxy-capture`.
+
+> python -c from statebreaker.cli.app import main; main() capture import experiments\securify_lab7_evidence\securify7-ex1-browser-evidence.har --project securify7-lab7-evidence-clean --capture-id securify7-ex1-browser-evidence
+imported 2 exchanges as capture 'securify7-ex1-browser-evidence'  (normal-flow traffic imported)
+
+> Browser-confirmed exploit evidence summary
+{
+  "global_invariant": "Savings debited once to 8503.23 while Checking and Daily Transactions were both credited by 100; global total increases by 100.",
+  "request_pair": [
+    "Savings -> Checking amount 100",
+    "Savings -> Daily Transactions amount 100"
+  ],
+  "auth_material_written": "No Cookie header; CSRF redacted in HAR."
+}
+
+> Visual API evidence
+viz-api shows 4 events and red arrows for interleaved transfer calls after the two-tab race.
